@@ -3,13 +3,16 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "dashboard", label: "Dashboard", roles: ["pdg", "admin"] },
     { key: "stock", label: "Stock", roles: ["pdg", "admin", "stock"] },
     { key: "ia", label: "IA", roles: ["pdg", "admin"] },
-    { key: "newPurchase", label: "Nouvel achat", roles: ["pdg", "admin", "achat"] },
+    { key: "purchasePOS", label: "Achat POS", roles: ["pdg", "admin", "achat", "stock"] },
+    //{ key: "newPurchase", label: "Nouvel achat", roles: ["pdg", "admin", "achat"] },
     { key: "purchases", label: "Achats", roles: ["pdg", "admin", "achat"] },
+    { key: "purchaseDocuments", label: "Docs achats", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "newTransfer", label: "Nouveau transfert", roles: ["pdg", "admin", "stock"] },
     { key: "transfers", label: "Transferts", roles: ["pdg", "admin", "stock"] },
     { key: "suppliers", label: "Fournisseurs", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "receivePurchase", label: "Réception fournisseur", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "transferValidation", label: "Validation transfert", roles: ["pdg", "admin", "stock", "controle"] },
+    { key: "interSiteRequests", label: "Inter-sites", roles: ["pdg", "admin", "stock", "controle"] },
     { key: "newProduction", label: "Nouvelle fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "productionActions", label: "Actions fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "productionFinish", label: "Fin fabrication", roles: ["pdg", "admin", "cuisine"] },
@@ -24,9 +27,8 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "financeAI", label: "IA Trésorerie", roles: ["pdg", "admin"] },
     { key: "sites", label: "Sites", roles: ["pdg", "admin"] },
     { key: "recipes", label: "Fiches techniques", roles: ["pdg", "admin", "cuisine", "stock"] },
-    { key: "purchasePOS", label: "Achat POS", roles: ["pdg", "admin", "achat", "stock"] },
-    { key: "interSiteRequests", label: "Inter-sites", roles: ["pdg", "admin", "stock", "controle"] },
-    { key: "purchaseDocuments", label: "Docs achats", roles: ["pdg", "admin", "achat", "stock"] },
+
+
 
   
   ];
