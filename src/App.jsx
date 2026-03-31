@@ -23,6 +23,12 @@ import FinanceAI from "./pages/FinanceAI";
 import ReceivePurchase from "./pages/ReceivePurchase";
 import ProductionFinish from "./pages/ProductionFinish";
 import TransferValidation from "./pages/TransferValidation";
+import Suppliers from "./pages/Suppliers";
+import Sites from "./pages/Sites";
+import Recipes from "./pages/Recipes";
+import PurchasePOS from "./pages/PurchasePOS";
+import InterSiteRequests from "./pages/InterSiteRequests";
+import PurchaseDocuments from "./pages/PurchaseDocuments";
 
 export default function App() {
   const { isAuthenticated, loading, logout, user } = useAuth();
@@ -58,6 +64,12 @@ export default function App() {
   if (page === "receivePurchase") content = <ReceivePurchase />;
   if (page === "productionFinish") content = <ProductionFinish />;
   if (page === "transferValidation") content = <TransferValidation />;
+  if (page === "suppliers") content = <Suppliers />;
+  if (page === "sites") content = <Sites />;
+  if (page === "recipes") content = <Recipes />;
+  if (page === "purchasePOS") content = <PurchasePOS />;
+  if (page === "interSiteRequests") content = <InterSiteRequests />;
+  if (page === "purchaseDocuments") content = <PurchaseDocuments />;
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>
       {content}

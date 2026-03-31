@@ -6,6 +6,7 @@ export default function useReferences() {
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
+  const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -14,12 +15,14 @@ export default function useReferences() {
       api.get("/references/suppliers"),
       api.get("/references/products"),
       api.get("/references/warehouses"),
+      api.get("/references/units"),
     ])
-      .then(([sitesRes, suppliersRes, productsRes, warehousesRes]) => {
+      .then(([sitesRes, suppliersRes, productsRes, warehousesRes, unitsRes]) => {
         setSites(sitesRes.data);
         setSuppliers(suppliersRes.data);
         setProducts(productsRes.data);
         setWarehouses(warehousesRes.data);
+        setUnits(unitsRes.data);
       })
       .catch((err) => {
         console.error("Erreur chargement références", err);
@@ -34,6 +37,7 @@ export default function useReferences() {
     suppliers,
     products,
     warehouses,
+    units,
     loading,
   };
 }
