@@ -29,6 +29,8 @@ import Recipes from "./pages/Recipes";
 import PurchasePOS from "./pages/PurchasePOS";
 import InterSiteRequests from "./pages/InterSiteRequests";
 import PurchaseDocuments from "./pages/PurchaseDocuments";
+import StockDashboardSite from "./pages/StockDashboardSite";
+import StockDashboardGlobal from "./pages/StockDashboardGlobal";
 
 export default function App() {
   const { isAuthenticated, loading, logout, user } = useAuth();
@@ -70,6 +72,8 @@ export default function App() {
   if (page === "purchasePOS") content = <PurchasePOS />;
   if (page === "interSiteRequests") content = <InterSiteRequests />;
   if (page === "purchaseDocuments") content = <PurchaseDocuments />;
+  if (page === "stockDashboardSite") content = <StockDashboardSite />;
+  if (page === "stockDashboardGlobal") content = <StockDashboardGlobal />;
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>
       {content}

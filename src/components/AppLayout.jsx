@@ -28,7 +28,9 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
   }, [user]);
 
   const navItems = [
-    { key: "dashboard", label: "Dashboard", roles: ["pdg", "admin"] },
+    //{ key: "dashboard", label: "Dashboard", roles: ["pdg", "admin"] },
+    { key: "stockDashboardSite", label: "Dashboard Site", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
+    { key: "stockDashboardGlobal", label: "Dashboard PDG Stock", roles: ["pdg"] },
     { key: "stock", label: "Stock", roles: ["pdg", "admin", "stock"] },
     { key: "stockLosses", label: "Pertes", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
     { key: "stockInventories", label: "Inventaires", roles: ["pdg", "admin", "stock", "controle"] },
@@ -36,7 +38,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "recipes", label: "Fiches techniques", roles: ["pdg", "admin", "cuisine", "stock"] },
     { key: "productionActions", label: "Actions fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "productionFinish", label: "Fin fabrication", roles: ["pdg", "admin", "cuisine"] },
-    { key: "ia", label: "IA", roles: ["pdg", "admin"] },
+    { key: "ia", label: "IA", roles: ["pdg"] },
     { key: "purchasePOS", label: "Achat POS", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "purchases", label: "Achats", roles: ["pdg", "admin", "achat"] },
     { key: "receivePurchase", label: "Réception fournisseur", roles: ["pdg", "admin", "achat", "stock"] },
@@ -45,12 +47,13 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "transfers", label: "Transferts", roles: ["pdg", "admin", "stock"] },
     { key: "transferValidation", label: "Validation transfert", roles: ["pdg", "admin", "stock", "controle"] },
     { key: "interSiteRequests", label: "Inter-sites", roles: ["pdg", "admin", "stock", "controle"] },
-    { key: "sites", label: "Sites", roles: ["pdg", "admin"] },
-    { key: "finance", label: "Finance", roles: ["pdg", "admin"] },
-    { key: "financeAI", label: "IA Trésorerie", roles: ["pdg", "admin"] },
-    { key: "analytics", label: "Analytics", roles: ["pdg", "admin"] },
-    { key: "users", label: "Utilisateurs", roles: ["pdg", "admin"] },
-    { key: "auditLogs", label: "Audit Logs", roles: ["pdg", "admin"] },
+    { key: "sites", label: "Sites", roles: ["pdg"] },
+    { key: "finance", label: "Finance", roles: ["pdg"] },
+    { key: "financeAI", label: "IA Trésorerie", roles: ["pdg"] },
+    { key: "analytics", label: "Analytics", roles: ["pdg"] },
+    { key: "users", label: "Utilisateurs", roles: ["pdg"] },
+    { key: "auditLogs", label: "Audit Logs", roles: ["pdg"] },
+
   ];
 
   const filteredNav = navItems.filter((item) => item.roles.includes(user?.role));

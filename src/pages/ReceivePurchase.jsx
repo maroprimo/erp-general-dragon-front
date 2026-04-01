@@ -4,6 +4,7 @@ import useReferences from "../hooks/useReferences";
 import toast from "react-hot-toast";
 import ConfirmBox from "../components/ConfirmBox";
 
+
 export default function ReceivePurchase() {
   const { warehouses, loading } = useReferences();
 
