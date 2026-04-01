@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 
+  const openPrint = (type, id) => {
+  const base = import.meta.env.VITE_BACKEND_WEB_URL || "";
+  window.open(`${base}/print/${type}/${id}`, "_blank");
+};
 function InvoiceModal({ open, onClose, purchaseOrders, goodsReceipts, suppliers, sites, onSaved }) {
   const [form, setForm] = useState({
     supplier_id: "",
@@ -46,6 +50,7 @@ function InvoiceModal({ open, onClose, purchaseOrders, goodsReceipts, suppliers,
       toast.error("Erreur création facture");
     }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -160,6 +165,7 @@ export default function PurchaseDocuments() {
       loadDocuments();
     } catch (err) {
       console.error(err);
+      console.log(typeof openPrint);
       toast.error("Erreur validation facture");
     }
   };
@@ -198,6 +204,12 @@ export default function PurchaseDocuments() {
                 <div className="text-sm text-slate-500">
                   Réf facture : {po.supplier_invoice_ref ?? "-"}
                 </div>
+                <button
+                  onClick={() => openPrint("purchase-order", po.id)}
+                  className="mt-3 rounded-xl bg-slate-900 px-3 py-2 text-white"
+                >
+                  Imprimer
+                </button>
               </div>
             ))}
           </div>
@@ -218,6 +230,12 @@ export default function PurchaseDocuments() {
                 <div className="text-sm text-slate-500">
                   Date : {gr.document_date ? new Date(gr.document_date).toLocaleString() : "-"}
                 </div>
+                <button
+                onClick={() => openPrint("goods-receipt", gr.id)}
+                className="mt-3 rounded-xl bg-slate-900 px-3 py-2 text-white"
+              >
+                Imprimer
+              </button>
               </div>
             ))}
           </div>
@@ -247,6 +265,12 @@ export default function PurchaseDocuments() {
                     Valider
                   </button>
                 )}
+                <button
+                onClick={() => openPrint("supplier-invoice", inv.id)}
+                className="mt-3 mr-2 rounded-xl bg-slate-900 px-3 py-2 text-white"
+              >
+                Imprimer
+              </button>
               </div>
             ))}
           </div>

@@ -251,13 +251,16 @@ export default function PurchasePOS() {
     } else {
       setCart((prev) => [
         ...prev,
-        {
-          product_id: product.id,
-          code: product.code,
-          name: product.name,
-          quantity: 1,
-          unit_price: 0,
-        },
+      {
+        product_id: product.id,
+        code: product.code,
+        name: product.name,
+        quantity: 1,
+        unit_price: Number(product.last_purchase_price ?? 0),
+        last_purchase_price: Number(product.last_purchase_price ?? 0),
+        last_purchase_date: product.last_purchase_date ?? null,
+        last_supplier_name: product.last_supplier_name ?? null,
+      },
       ]);
     }
   };
@@ -471,6 +474,14 @@ export default function PurchasePOS() {
                 <div className="mt-2 text-xs text-slate-400">
                   {product.category?.name ?? "Sans catégorie"}
                 </div>
+
+                <div className="mt-2 text-sm text-slate-700">
+                  Dernier achat : <strong>{Number(product.last_purchase_price ?? 0)} Ar</strong>
+                </div>
+
+                <div className="text-xs text-slate-400">
+                  {product.last_supplier_name ?? "Fournisseur inconnu"}
+                </div>
               </button>
             ))}
           </div>
@@ -485,7 +496,13 @@ export default function PurchasePOS() {
               <div key={line.product_id} className="rounded-xl border border-slate-200 p-3">
                 <div className="font-semibold text-slate-800">{line.name}</div>
                 <div className="text-xs text-slate-500">{line.code}</div>
+                <div className="text-xs text-slate-500">
+                  Dernier achat : {Number(line.last_purchase_price ?? 0)} Ar
+                </div>
 
+                <div className="text-xs text-slate-400">
+                  {line.last_supplier_name ?? ""}
+                </div>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <input
                     type="number"
@@ -501,6 +518,11 @@ export default function PurchasePOS() {
                     value={line.unit_price}
                     onChange={(e) => updateCartLine(line.product_id, "unit_price", e.target.value)}
                   />
+                  {Number(line.unit_price || 0) !== Number(line.last_purchase_price || 0) && (
+                      <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
+                        Prix différent du dernier achat
+                      </div>
+                    )}
                 </div>
 
                 <div className="mt-2 flex items-center justify-between">
