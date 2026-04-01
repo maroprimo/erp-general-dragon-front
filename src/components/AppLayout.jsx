@@ -42,6 +42,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "stockDashboardGlobal", label: "Dashboard PDG Stock", roles: ["pdg"] },
     { key: "stock", label: "Stock", roles: ["pdg", "admin", "stock"] },
     { key: "stockLosses", label: "Pertes", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
+    { key: "ProductionLive", label: "Fabrication en live", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
     { key: "stockInventories", label: "Inventaires", roles: ["pdg", "admin", "stock", "controle"] },
     { key: "newProduction", label: "Fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "recipes", label: "Fiches techniques", roles: ["pdg", "admin", "cuisine", "stock"] },
