@@ -43,7 +43,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "stock", label: "Stock", roles: ["pdg", "admin", "stock"] },
     { key: "stockLosses", label: "Pertes", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
     { key: "stockInventories", label: "Inventaires", roles: ["pdg", "admin", "stock", "controle"] },
-    { key: "production", label: "Fabrication", roles: ["pdg", "admin", "cuisine"] },
+    { key: "newProduction", label: "Fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "recipes", label: "Fiches techniques", roles: ["pdg", "admin", "cuisine", "stock"] },
     { key: "productionActions", label: "Actions fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "productionFinish", label: "Fin fabrication", roles: ["pdg", "admin", "cuisine"] },

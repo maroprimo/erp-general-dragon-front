@@ -58,7 +58,7 @@ export default function App() {
   let content = <Dashboard />;
 
   if (page === "stock") content = <Stock />;
-  if (page === "ProductionLive") content = <ProductionLive />; // 👈 Changé "production" en "ProductionLive"
+  if (page === "ProductionLive") content = <ProductionLive />; //  Changé "production" en "ProductionLive"
   if (page === "ia") content = <AIAssistant />;
   if (page === "purchases") content = <Purchases />;
   if (page === "transfers") content = <Transfers />;
