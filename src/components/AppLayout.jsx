@@ -2,18 +2,18 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 
 export default function AppLayout({ user, logout, page, setPage, children }) {
+  const [stockAlertCount, setStockAlertCount] = useState(0);
   const [pendingTransferCount, setPendingTransferCount] = useState(0);
-  const [siteName, setSiteName] = useState("Chargement..."); // État pour le nom du site
+  const [siteName, setSiteName] = useState("Chargement...");
+
   useEffect(() => {
     const loadHeaderData = async () => {
       try {
         const res = await api.get("/inter-site-requests/pending-count");
         setPendingTransferCount(res.data.count ?? 0);
 
-        // 2. Charger le nom du site si l'utilisateur a un site_id
         if (user?.site_id) {
           const resSite = await api.get(`/sites-admin/${user.site_id}`);
-          // On suppose que ton API Laravel retourne l'objet site avec une colonne 'name'
           setSiteName(resSite.data.name || "Site inconnu");
         } else {
           setSiteName("Tous les sites (Admin)");
@@ -24,11 +24,20 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
       }
     };
 
+    const loadStockAlerts = async () => {
+      try {
+        const res = await api.get("/dashboard/stock/alert-count");
+        setStockAlertCount(res.data.count ?? 0);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
     loadHeaderData();
+    loadStockAlerts();
   }, [user]);
 
   const navItems = [
-    //{ key: "dashboard", label: "Dashboard", roles: ["pdg", "admin"] },
     { key: "stockDashboardSite", label: "Dashboard Site", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
     { key: "stockDashboardGlobal", label: "Dashboard PDG Stock", roles: ["pdg"] },
     { key: "stock", label: "Stock", roles: ["pdg", "admin", "stock"] },
@@ -53,7 +62,6 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "analytics", label: "Analytics", roles: ["pdg"] },
     { key: "users", label: "Utilisateurs", roles: ["pdg"] },
     { key: "auditLogs", label: "Audit Logs", roles: ["pdg"] },
-
   ];
 
   const filteredNav = navItems.filter((item) => item.roles.includes(user?.role));
@@ -69,6 +77,8 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
         <nav className="space-y-2 p-4">
           {filteredNav.map((item) => {
             const isInterSite = item.key === "interSiteRequests";
+            const isStockDashboard = item.key === "stockDashboardSite" || item.key === "stockDashboardGlobal";
+
             return (
               <button
                 key={item.key}
@@ -81,9 +91,17 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
               >
                 <span>{item.label}</span>
 
+                {/* Badge Inter-sites (Rouge) */}
                 {isInterSite && pendingTransferCount > 0 && (
                   <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">
                     {pendingTransferCount}
+                  </span>
+                )}
+
+                {/* Badge Alerte Stock (Orange/Ambre) sur les Dashboards Stock */}
+                {isStockDashboard && stockAlertCount > 0 && (
+                  <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs text-white">
+                    {stockAlertCount}
                   </span>
                 )}
               </button>
@@ -96,11 +114,11 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
           <div>
             <h2 className="text-2xl font-bold text-slate-800">ERP General Dragon</h2>
-      <p className="text-sm text-slate-500">
-        <span className="font-semibold text-slate-700">Site : {siteName}</span> 
-        <span className="mx-2">|</span>
-        Utilisateur : {user?.name || user?.email} ({user?.role})
-      </p>
+            <p className="text-sm text-slate-500">
+              <span className="font-semibold text-slate-700">Site : {siteName}</span> 
+              <span className="mx-2">|</span>
+              Utilisateur : {user?.name || user?.email} ({user?.role})
+            </p>
           </div>
 
           <button

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "./context/AuthContext";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -33,6 +33,17 @@ import StockDashboardSite from "./pages/StockDashboardSite";
 import StockDashboardGlobal from "./pages/StockDashboardGlobal";
 
 export default function App() {
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.detail) {
+        setPage(event.detail);
+      }
+    };
+
+    window.addEventListener("open-page", handler);
+    return () => window.removeEventListener("open-page", handler);
+  }, []);
+
   const { isAuthenticated, loading, logout, user } = useAuth();
   const [page, setPage] = useState("dashboard");
 
