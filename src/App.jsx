@@ -55,7 +55,7 @@ export default function App() {
     return <Login />;
   }
 
-  let content = <Dashboard />;
+  let content = <StockDashboardSite />;
 
   if (page === "stock") content = <Stock />;
   if (page === "ProductionLive") content = <ProductionLive />; //  Changé "production" en "ProductionLive"

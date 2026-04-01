@@ -3,6 +3,7 @@ import api from "../services/api";
 import useReferences from "../hooks/useReferences";
 import toast from "react-hot-toast";
 import ConfirmBox from "../components/ConfirmBox";
+import { useAuth } from "../context/AuthContext"
 
 
 export default function ReceivePurchase() {
