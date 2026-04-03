@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
+import { formatQty, formatMoney } from "../utils/formatters";
 
 function QuickProductModal({ open, onClose, categories, units, onCreated }) {
   const [form, setForm] = useState({
@@ -476,7 +477,7 @@ export default function PurchasePOS() {
                 </div>
 
                 <div className="mt-2 text-sm text-slate-700">
-                  Dernier achat : <strong>{Number(product.last_purchase_price ?? 0)} Ar</strong>
+                  Dernier achat : <strong>{formatMoney(Number(product.last_purchase_price) ?? 0)} Ar</strong>
                 </div>
 
                 <div className="text-xs text-slate-400">
@@ -527,7 +528,7 @@ export default function PurchasePOS() {
 
                 <div className="mt-2 flex items-center justify-between">
                   <div className="font-bold text-slate-800">
-                    {Number(line.quantity || 0) * Number(line.unit_price || 0)} Ar
+                    {formatMoney(Number(line.quantity || 0) * Number(line.unit_price || 0))} Ar
                   </div>
                   <button
                     onClick={() => removeCartLine(line.product_id)}
@@ -542,7 +543,7 @@ export default function PurchasePOS() {
 
           <div className="mt-6 rounded-xl bg-slate-100 p-4">
             <div className="text-sm text-slate-500">Montant total</div>
-            <div className="text-2xl font-bold text-slate-800">{totalAmount} Ar</div>
+            <div className="text-2xl font-bold text-slate-800">{formatMoney(totalAmount)} Ar</div>
           </div>
 
           <button

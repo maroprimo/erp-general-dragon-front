@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
 import toast from "react-hot-toast";
+import { formatQty, formatMoney } from "../utils/formatters";
 
 const lossTypes = [
   "casse",
@@ -246,8 +247,8 @@ export default function StockLosses() {
                   <td className="px-4 py-3">{loss.site?.name ?? loss.site_id}</td>
                   <td className="px-4 py-3">{loss.warehouse?.name ?? loss.warehouse_id ?? "-"}</td>
                   <td className="px-4 py-3">{loss.loss_type}</td>
-                  <td className="px-4 py-3">{loss.quantity}</td>
-                  <td className="px-4 py-3">{loss.total_cost} Ar</td>
+                  <td className="px-4 py-3">{formatQty(loss.quantity)}</td>
+                  <td className="px-4 py-3">{formatMoney(loss.total_cost)} Ar</td>
                   <td className="px-4 py-3">{loss.status}</td>
                   <td className="px-4 py-3">
                     {loss.status !== "validated" && (

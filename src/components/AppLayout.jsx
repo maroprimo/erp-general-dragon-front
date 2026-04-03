@@ -47,7 +47,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "newProduction", label: "Fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "recipes", label: "Fiches techniques", roles: ["pdg", "admin", "cuisine", "stock"] },
     { key: "productionActions", label: "Actions fabrication", roles: ["pdg", "admin", "cuisine"] },
-    { key: "productionFinish", label: "Fin fabrication", roles: ["pdg", "admin", "cuisine"] },
+    //{ key: "productionFinish", label: "Fin fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "ia", label: "IA", roles: ["pdg"] },
     { key: "purchasePOS", label: "Achat POS", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "purchases", label: "Achats", roles: ["pdg", "admin", "achat"] },
@@ -63,6 +63,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "analytics", label: "Analytics", roles: ["pdg"] },
     { key: "users", label: "Utilisateurs", roles: ["pdg"] },
     { key: "auditLogs", label: "Audit Logs", roles: ["pdg"] },
+    { key: "productsCatalog", label: "Gestion Produits", roles: ["pdg", "admin", "stock", "achat"] },
   ];
 
   const filteredNav = navItems.filter((item) => item.roles.includes(user?.role));
@@ -122,12 +123,33 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
             </p>
           </div>
 
-          <button
-            onClick={logout}
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-          >
-            Déconnexion
-          </button>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              {user?.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt="avatar"
+                  className="h-10 w-10 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-slate-600">
+                  ?
+                </div>
+              )}
+
+              <div className="text-right">
+                <div className="text-sm font-medium text-slate-800">{user?.name || user?.email}</div>
+                <div className="text-xs text-slate-500">{user?.role}</div>
+              </div>
+            </div>
+
+            <button
+              onClick={logout}
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+            >
+              Déconnexion
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 p-6">{children}</main>

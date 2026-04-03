@@ -1,6 +1,30 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
+import { formatQty, formatMoney, formatDateTime } from "../utils/formatters";
+
+
+
+const getDocumentBadgeClass = (type) => {
+  if (type === "BC") return "bg-red-100 text-red-700";
+  if (type === "BR") return "bg-orange-100 text-orange-700";
+  if (type === "FACTURE") return "bg-emerald-100 text-emerald-700";
+  return "bg-slate-100 text-slate-700";
+};
+
+const getStatusBadgeClass = (status) => {
+  if (status === "validated" || status === "paid" || status === "received") {
+    return "bg-emerald-100 text-emerald-700";
+  }
+  if (status === "draft" || status === "pending") {
+    return "bg-slate-100 text-slate-700";
+  }
+  if (status === "approved" || status === "partially_paid") {
+    return "bg-orange-100 text-orange-700";
+  }
+  return "bg-slate-100 text-slate-700";
+};
+
 
   const openPrint = (type, id) => {
   const base = import.meta.env.VITE_BACKEND_WEB_URL || "";
@@ -192,7 +216,9 @@ export default function PurchaseDocuments() {
         <div className="rounded-2xl bg-white p-5 shadow">
           <h2 className="mb-4 text-xl font-semibold text-slate-800">Bons de commande</h2>
           <div className="space-y-3">
+          
             {(data.purchase_orders ?? []).map((po) => (
+              <div className={`inline-block rounded-lg px-2 py-1 text-xs font-semibold ${getDocumentBadgeClass("BC")}`}>
               <div key={po.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="font-semibold text-slate-800">{po.order_number}</div>
                 <div className="text-sm text-slate-500">
@@ -211,14 +237,17 @@ export default function PurchaseDocuments() {
                   Imprimer
                 </button>
               </div>
+              </div>
             ))}
-          </div>
+          
         </div>
+      </div>
 
         <div className="rounded-2xl bg-white p-5 shadow">
           <h2 className="mb-4 text-xl font-semibold text-slate-800">Bons de réception</h2>
           <div className="space-y-3">
             {(data.goods_receipts ?? []).map((gr) => (
+              <div className={`inline-block rounded-lg px-2 py-1 text-xs font-semibold ${getDocumentBadgeClass("BR")}`}>
               <div key={gr.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="font-semibold text-slate-800">{gr.receipt_number}</div>
                 <div className="text-sm text-slate-500">
@@ -237,6 +266,7 @@ export default function PurchaseDocuments() {
                 Imprimer
               </button>
               </div>
+              </div>
             ))}
           </div>
         </div>
@@ -245,6 +275,7 @@ export default function PurchaseDocuments() {
           <h2 className="mb-4 text-xl font-semibold text-slate-800">Factures fournisseurs</h2>
           <div className="space-y-3">
             {(data.supplier_invoices ?? []).map((inv) => (
+            <div className={`inline-block rounded-lg px-2 py-1 text-xs font-semibold ${getDocumentBadgeClass("FACTURE")}`}>
               <div key={inv.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="font-semibold text-slate-800">{inv.invoice_number}</div>
                 <div className="text-sm text-slate-500">
@@ -254,9 +285,8 @@ export default function PurchaseDocuments() {
                   Réf fournisseur : {inv.supplier_invoice_ref ?? "-"}
                 </div>
                 <div className="text-sm text-slate-500">
-                  TTC : {inv.amount_ttc} Ar / Statut : {inv.status}
+                  TTC : {formatMoney(inv.amount_ttc)} Ar / <div className={`mt-2 inline-block rounded-lg px-2 py-1 text-xs font-semibold ${getStatusBadgeClass(inv.status)}`}>Statut : {inv.status}</div>
                 </div>
-
                 {inv.status !== "validated" && (
                   <button
                     onClick={() => validateInvoice(inv.id)}
@@ -271,6 +301,7 @@ export default function PurchaseDocuments() {
               >
                 Imprimer
               </button>
+              </div>
               </div>
             ))}
           </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 import KpiCard from "../components/KpiCard";
+import { formatQty, formatMoney } from "../utils/formatters";
 import {
   ResponsiveContainer,
   BarChart,
@@ -41,7 +42,7 @@ export default function StockDashboardGlobal() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <KpiCard title="Valeur stock réseau" value={`${data.kpis.total_stock_value} Ar`} />
+        <KpiCard title="Valeur stock réseau" value={`${formatMoney(data.kpis.total_stock_value)} Ar`} />
         <KpiCard title="Stocks critiques" value={data.kpis.critical_count} />
         <KpiCard title="Transferts en transit" value={data.kpis.transfers_in_transit} />
         <KpiCard title="Alertes globales" value={data.kpis.global_alert_count} />

@@ -2,34 +2,29 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
 import toast from "react-hot-toast";
+import { formatDateTime, formatQty } from "../utils/formatters";
 
 export default function ProductionActions() {
   const { products, warehouses, loading } = useReferences();
-  const [orders, setOrders] = useState([]);
 
-  const [startForm, setStartForm] = useState({
-    order_id: "",
-    started_at: "",
-    responsible_user_id: "",
-  });
+  const [orders, setOrders] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   const [consumptionForm, setConsumptionForm] = useState({
-    order_id: "",
-    lines: [
+    consumptions: [
       {
         product_id: "",
-        issued_from_warehouse_id: "",
-        issued_from_location_id: "",
-        theoretical_quantity: "",
+        warehouse_id: "",
+        storage_location_id: "",
         actual_quantity: "",
         unit_cost: "",
-        issued_at: "",
+        notes: "",
       },
     ],
   });
 
   const [finishForm, setFinishForm] = useState({
-    order_id: "",
     ended_at: "",
     outputs: [
       {
@@ -45,48 +40,125 @@ export default function ProductionActions() {
     losses: [],
   });
 
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const loadOrders = async () => {
+    try {
+      const res = await api.get("/production/orders");
+      setOrders(res.data.data ?? res.data);
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible de charger les fabrications");
+    }
+  };
 
   useEffect(() => {
-    api
-      .get("/production/orders")
-      .then((res) => setOrders(res.data.data ?? res.data))
-      .catch((err) => console.error(err));
+    loadOrders();
   }, []);
+
+  const openOrder = async (id) => {
+    try {
+      setSelectedId(id);
+      const res = await api.get(`/production/orders/${id}`);
+      setSelectedOrder(res.data);
+
+      setConsumptionForm({
+        consumptions: [
+          {
+            product_id: "",
+            warehouse_id: "",
+            storage_location_id: "",
+            actual_quantity: "",
+            unit_cost: "",
+            notes: "",
+          },
+        ],
+      });
+
+      setFinishForm({
+        ended_at: "",
+        outputs: [
+          {
+            product_id: res.data.recipe?.product?.id ?? "",
+            output_type: "principal",
+            produced_quantity: "",
+            storage_warehouse_id: res.data.warehouse_id ?? "",
+            storage_location_id: "",
+            expiry_date: "",
+            is_ready_for_stock: true,
+          },
+        ],
+        losses: [],
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible d’ouvrir l’ordre de fabrication");
+    }
+  };
+
+  const startProduction = async () => {
+    try {
+      const res = await api.post(`/production/orders/${selectedOrder.id}/start`);
+      toast.success(res.data.message || "Fabrication démarrée");
+      openOrder(selectedOrder.id);
+      loadOrders();
+    } catch (err) {
+      console.error(err);
+      toast.error("Erreur démarrage fabrication");
+    }
+  };
 
   const addConsumptionLine = () => {
     setConsumptionForm((prev) => ({
-      ...prev,
-      lines: [
-        ...prev.lines,
+      consumptions: [
+        ...prev.consumptions,
         {
           product_id: "",
-          issued_from_warehouse_id: "",
-          issued_from_location_id: "",
-          theoretical_quantity: "",
+          warehouse_id: "",
+          storage_location_id: "",
           actual_quantity: "",
           unit_cost: "",
-          issued_at: "",
+          notes: "",
         },
       ],
     }));
   };
 
   const updateConsumptionLine = (index, field, value) => {
-    const lines = [...consumptionForm.lines];
-    lines[index][field] = value;
-    setConsumptionForm((prev) => ({ ...prev, lines }));
+    const consumptions = [...consumptionForm.consumptions];
+    consumptions[index][field] = value;
+    setConsumptionForm({ consumptions });
   };
 
-  const addOutputLine = () => {
+  const saveConsumptions = async () => {
+    try {
+      const payload = {
+        consumptions: consumptionForm.consumptions.map((line) => ({
+          product_id: Number(line.product_id),
+          warehouse_id: line.warehouse_id ? Number(line.warehouse_id) : null,
+          storage_location_id: line.storage_location_id ? Number(line.storage_location_id) : null,
+          actual_quantity: Number(line.actual_quantity),
+          unit_cost: line.unit_cost ? Number(line.unit_cost) : null,
+          notes: line.notes || "",
+        })),
+      };
+
+      const res = await api.post(`/production/orders/${selectedOrder.id}/consumptions`, payload);
+      toast.success(res.data.message || "Consommations enregistrées");
+      openOrder(selectedOrder.id);
+      loadOrders();
+    } catch (err) {
+      console.error(err);
+      toast.error("Erreur enregistrement consommations");
+    }
+  };
+
+  const addOutput = () => {
     setFinishForm((prev) => ({
       ...prev,
       outputs: [
         ...prev.outputs,
         {
           product_id: "",
-          output_type: "principal",
+          output_type: "co_product",
           produced_quantity: "",
           storage_warehouse_id: "",
           storage_location_id: "",
@@ -97,77 +169,34 @@ export default function ProductionActions() {
     }));
   };
 
-  const updateOutputLine = (index, field, value) => {
+  const updateOutput = (index, field, value) => {
     const outputs = [...finishForm.outputs];
     outputs[index][field] = value;
     setFinishForm((prev) => ({ ...prev, outputs }));
   };
 
-  const startProduction = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    setError("");
-
-    try {
-      const payload = {
-        started_at: startForm.started_at || null,
-        responsible_user_id: startForm.responsible_user_id
-          ? Number(startForm.responsible_user_id)
-          : null,
-      };
-
-        const resStart = await api.post(
-        `/production/orders/${startForm.order_id}/start`,
-        payload
-        );
-      toast.success(resStart.data?.message || "Fabrication démarrée");
-    } catch (err) {
-      console.error(err);
-      toast.error("Erreur au démarrage de fabrication");
-    }
+  const addLoss = () => {
+    setFinishForm((prev) => ({
+      ...prev,
+      losses: [
+        ...prev.losses,
+        {
+          product_id: "",
+          lost_quantity: "",
+          reason: "yield_loss",
+          notes: "",
+        },
+      ],
+    }));
   };
 
-  const declareConsumption = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    setError("");
-
-    try {
-      const payload = {
-        lines: consumptionForm.lines.map((line) => ({
-          product_id: Number(line.product_id),
-          issued_from_warehouse_id: line.issued_from_warehouse_id
-            ? Number(line.issued_from_warehouse_id)
-            : null,
-          issued_from_location_id: line.issued_from_location_id
-            ? Number(line.issued_from_location_id)
-            : null,
-          theoretical_quantity: line.theoretical_quantity
-            ? Number(line.theoretical_quantity)
-            : null,
-          actual_quantity: Number(line.actual_quantity),
-          unit_cost: line.unit_cost ? Number(line.unit_cost) : null,
-          issued_at: line.issued_at || null,
-        })),
-      };
-
-        const resConsumption = await api.post(
-        `/production/orders/${consumptionForm.order_id}/consumptions`,
-        payload
-        );
-
-      toast.success(res.data.message || "Consommation enregistrée");
-    } catch (err) {
-      console.error(err);
-      toast.error("Erreur lors de l’enregistrement des consommations");
-    }
+  const updateLoss = (index, field, value) => {
+    const losses = [...finishForm.losses];
+    losses[index][field] = value;
+    setFinishForm((prev) => ({ ...prev, losses }));
   };
 
-  const finishProduction = async (e) => {
-    e.preventDefault();
-    setMessage("");
-    setError("");
-
+  const finishProduction = async () => {
     try {
       const payload = {
         ended_at: finishForm.ended_at || null,
@@ -175,281 +204,400 @@ export default function ProductionActions() {
           product_id: Number(output.product_id),
           output_type: output.output_type,
           produced_quantity: Number(output.produced_quantity),
-          storage_warehouse_id: output.storage_warehouse_id
-            ? Number(output.storage_warehouse_id)
-            : null,
-          storage_location_id: output.storage_location_id
-            ? Number(output.storage_location_id)
-            : null,
+          storage_warehouse_id: output.storage_warehouse_id ? Number(output.storage_warehouse_id) : null,
+          storage_location_id: output.storage_location_id ? Number(output.storage_location_id) : null,
           expiry_date: output.expiry_date || null,
           is_ready_for_stock: Boolean(output.is_ready_for_stock),
         })),
-        losses: [],
+        losses: finishForm.losses.map((loss) => ({
+          product_id: loss.product_id ? Number(loss.product_id) : null,
+          lost_quantity: Number(loss.lost_quantity),
+          reason: loss.reason,
+          notes: loss.notes || "",
+        })),
       };
 
-        const resFinish = await api.post(
-        `/production/orders/${finishForm.order_id}/finish`,
-        payload
-        );
-
-      setMessage(res.data.message || "Fabrication terminée");
+      const res = await api.post(`/production/orders/${selectedOrder.id}/finish`, payload);
+      toast.success(res.data.message || "Fabrication terminée");
+      openOrder(selectedOrder.id);
+      loadOrders();
     } catch (err) {
       console.error(err);
-      setError("Erreur lors de la clôture de fabrication");
+      toast.error("Erreur fin de fabrication");
     }
   };
 
   if (loading) {
-    return <div className="p-6">Chargement...</div>;
+    return <div className="p-6">Chargement des références...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 p-6 space-y-8">
-      <h1 className="text-3xl font-bold text-slate-800">
-        Actions de fabrication
-      </h1>
-
-      <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
-        {/* Démarrage */}
-        <form onSubmit={startProduction} className="rounded-2xl bg-white p-6 shadow space-y-4">
-          <h2 className="text-xl font-semibold">Démarrer fabrication</h2>
-
-          <select
-            className="w-full rounded-xl border p-3"
-            value={startForm.order_id}
-            onChange={(e) => setStartForm((prev) => ({ ...prev, order_id: e.target.value }))}
-          >
-            <option value="">Choisir un OF</option>
-            {orders.map((order) => (
-              <option key={order.id} value={order.id}>
-                {order.order_number}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="datetime-local"
-            className="w-full rounded-xl border p-3"
-            value={startForm.started_at}
-            onChange={(e) => setStartForm((prev) => ({ ...prev, started_at: e.target.value }))}
-          />
-
-          <input
-            type="number"
-            placeholder="responsible_user_id"
-            className="w-full rounded-xl border p-3"
-            value={startForm.responsible_user_id}
-            onChange={(e) =>
-              setStartForm((prev) => ({ ...prev, responsible_user_id: e.target.value }))
-            }
-          />
-
-          <button className="rounded-xl bg-slate-900 px-4 py-2 text-white">
-            Démarrer
-          </button>
-        </form>
-
-        {/* Consommation */}
-        <form onSubmit={declareConsumption} className="rounded-2xl bg-white p-6 shadow space-y-4">
-          <h2 className="text-xl font-semibold">Déclarer consommation</h2>
-
-          <select
-            className="w-full rounded-xl border p-3"
-            value={consumptionForm.order_id}
-            onChange={(e) =>
-              setConsumptionForm((prev) => ({ ...prev, order_id: e.target.value }))
-            }
-          >
-            <option value="">Choisir un OF</option>
-            {orders.map((order) => (
-              <option key={order.id} value={order.id}>
-                {order.order_number}
-              </option>
-            ))}
-          </select>
-
-          {consumptionForm.lines.map((line, index) => (
-            <div key={index} className="space-y-2 rounded-xl border p-3">
-              <select
-                className="w-full rounded-xl border p-3"
-                value={line.product_id}
-                onChange={(e) => updateConsumptionLine(index, "product_id", e.target.value)}
-              >
-                <option value="">Produit</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="w-full rounded-xl border p-3"
-                value={line.issued_from_warehouse_id}
-                onChange={(e) =>
-                  updateConsumptionLine(index, "issued_from_warehouse_id", e.target.value)
-                }
-              >
-                <option value="">Dépôt source</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="number"
-                placeholder="Qté théorique"
-                className="w-full rounded-xl border p-3"
-                value={line.theoretical_quantity}
-                onChange={(e) =>
-                  updateConsumptionLine(index, "theoretical_quantity", e.target.value)
-                }
-              />
-
-              <input
-                type="number"
-                placeholder="Qté réelle"
-                className="w-full rounded-xl border p-3"
-                value={line.actual_quantity}
-                onChange={(e) =>
-                  updateConsumptionLine(index, "actual_quantity", e.target.value)
-                }
-              />
-
-              <input
-                type="number"
-                placeholder="Coût unitaire"
-                className="w-full rounded-xl border p-3"
-                value={line.unit_cost}
-                onChange={(e) => updateConsumptionLine(index, "unit_cost", e.target.value)}
-              />
-
-              <input
-                type="datetime-local"
-                className="w-full rounded-xl border p-3"
-                value={line.issued_at}
-                onChange={(e) => updateConsumptionLine(index, "issued_at", e.target.value)}
-              />
-            </div>
-          ))}
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={addConsumptionLine}
-              className="rounded-xl bg-slate-700 px-4 py-2 text-white"
-            >
-              Ajouter ligne
-            </button>
-
-            <button className="rounded-xl bg-slate-900 px-4 py-2 text-white">
-              Enregistrer
-            </button>
-          </div>
-        </form>
-
-        {/* Fin */}
-        <form onSubmit={finishProduction} className="rounded-2xl bg-white p-6 shadow space-y-4">
-          <h2 className="text-xl font-semibold">Terminer fabrication</h2>
-
-          <select
-            className="w-full rounded-xl border p-3"
-            value={finishForm.order_id}
-            onChange={(e) =>
-              setFinishForm((prev) => ({ ...prev, order_id: e.target.value }))
-            }
-          >
-            <option value="">Choisir un OF</option>
-            {orders.map((order) => (
-              <option key={order.id} value={order.id}>
-                {order.order_number}
-              </option>
-            ))}
-          </select>
-
-          <input
-            type="datetime-local"
-            className="w-full rounded-xl border p-3"
-            value={finishForm.ended_at}
-            onChange={(e) => setFinishForm((prev) => ({ ...prev, ended_at: e.target.value }))}
-          />
-
-          {finishForm.outputs.map((output, index) => (
-            <div key={index} className="space-y-2 rounded-xl border p-3">
-              <select
-                className="w-full rounded-xl border p-3"
-                value={output.product_id}
-                onChange={(e) => updateOutputLine(index, "product_id", e.target.value)}
-              >
-                <option value="">Produit fini</option>
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                className="w-full rounded-xl border p-3"
-                value={output.output_type}
-                onChange={(e) => updateOutputLine(index, "output_type", e.target.value)}
-              >
-                <option value="principal">Principal</option>
-                <option value="co_product">Co-produit</option>
-              </select>
-
-              <input
-                type="number"
-                placeholder="Quantité produite"
-                className="w-full rounded-xl border p-3"
-                value={output.produced_quantity}
-                onChange={(e) => updateOutputLine(index, "produced_quantity", e.target.value)}
-              />
-
-              <select
-                className="w-full rounded-xl border p-3"
-                value={output.storage_warehouse_id}
-                onChange={(e) =>
-                  updateOutputLine(index, "storage_warehouse_id", e.target.value)
-                }
-              >
-                <option value="">Dépôt destination</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
-
-              <input
-                type="date"
-                className="w-full rounded-xl border p-3"
-                value={output.expiry_date}
-                onChange={(e) => updateOutputLine(index, "expiry_date", e.target.value)}
-              />
-            </div>
-          ))}
-
-          <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={addOutputLine}
-              className="rounded-xl bg-slate-700 px-4 py-2 text-white"
-            >
-              Ajouter sortie
-            </button>
-
-            <button className="rounded-xl bg-emerald-700 px-4 py-2 text-white">
-              Terminer
-            </button>
-          </div>
-        </form>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-800">Actions fabrication</h1>
+        <p className="text-slate-500">
+          Workflow complet : démarrage, consommation, produit fini.
+        </p>
       </div>
 
-      {message && <div className="text-emerald-700 font-medium">{message}</div>}
-      {error && <div className="text-red-600 font-medium">{error}</div>}
+      <div className="rounded-2xl bg-white p-5 shadow">
+        <label className="mb-2 block text-sm font-medium text-slate-700">
+          Choisir un ordre de fabrication
+        </label>
+
+        <select
+          className="w-full rounded-xl border p-3"
+          value={selectedId}
+          onChange={(e) => openOrder(e.target.value)}
+        >
+          <option value="">Choisir un OF</option>
+          {orders.map((order) => (
+            <option key={order.id} value={order.id}>
+              {order.order_number} - {order.recipe?.product?.name ?? "Produit"} - {order.status}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedOrder && (
+        <>
+          <div className="rounded-2xl bg-white p-5 shadow">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Produit</div>
+                <div className="font-semibold text-slate-800">
+                  {selectedOrder.recipe?.product?.name ?? "-"}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Qté prévue</div>
+                <div className="font-semibold text-slate-800">
+                  {formatQty(selectedOrder.planned_quantity)}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Statut</div>
+                <div className="font-semibold text-slate-800">
+                  {selectedOrder.status}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Début</div>
+                <div className="font-semibold text-slate-800">
+                  {formatDateTime(selectedOrder.started_at)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            {/* GAUCHE */}
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <h2 className="mb-4 text-xl font-semibold text-slate-800">1. Top départ</h2>
+
+              <div className="space-y-4">
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <div className="text-sm text-slate-500">OF</div>
+                  <div className="font-semibold text-slate-800">{selectedOrder.order_number}</div>
+                </div>
+
+<button
+  onClick={startProduction}
+  // Le bouton se grise si le statut est déjà in_progress, finished ou cancelled
+  disabled={selectedOrder.status !== "draft" && selectedOrder.status !== "planned"}
+  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+>
+  {selectedOrder.status === "in_progress" ? "Fabrication en cours..." : "Démarrer la fabrication"}
+</button>
+
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <div className="text-sm text-slate-500">Rappel workflow</div>
+                  <div className="mt-2 text-sm text-slate-700">
+                    1. Démarrer
+                    <br />
+                    2. Déclarer les sorties d’ingrédients
+                    <br />
+                    3. Déclarer le produit fini
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CENTRE */}
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-slate-800">2. Consommation</h2>
+                <button
+                  type="button"
+                  onClick={addConsumptionLine}
+                  className="rounded-xl bg-slate-700 px-4 py-2 text-white"
+                >
+                  Ajouter
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {consumptionForm.consumptions.map((line, index) => (
+                  <div key={index} className="rounded-xl border p-4 space-y-3">
+                    <select
+                      className="w-full rounded-xl border p-3"
+                      value={line.product_id}
+                      onChange={(e) => updateConsumptionLine(index, "product_id", e.target.value)}
+                    >
+                      <option value="">Produit ingrédient</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      className="w-full rounded-xl border p-3"
+                      value={line.warehouse_id}
+                      onChange={(e) => updateConsumptionLine(index, "warehouse_id", e.target.value)}
+                    >
+                      <option value="">Dépôt</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="number"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Quantité consommée"
+                      value={line.actual_quantity}
+                      onChange={(e) => updateConsumptionLine(index, "actual_quantity", e.target.value)}
+                    />
+
+                    <input
+                      type="number"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Coût unitaire"
+                      value={line.unit_cost}
+                      onChange={(e) => updateConsumptionLine(index, "unit_cost", e.target.value)}
+                    />
+
+                    <input
+                      type="text"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Notes"
+                      value={line.notes}
+                      onChange={(e) => updateConsumptionLine(index, "notes", e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={saveConsumptions}
+                className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-white"
+              >
+                Enregistrer consommations
+              </button>
+            </div>
+
+            {/* DROITE */}
+            <div className="rounded-2xl bg-white p-5 shadow">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-slate-800">3. Fin fabrication</h2>
+                <button
+                  type="button"
+                  onClick={addOutput}
+                  className="rounded-xl bg-slate-700 px-4 py-2 text-white"
+                >
+                  Ajouter sortie
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <input
+                  type="datetime-local"
+                  className="w-full rounded-xl border p-3"
+                  value={finishForm.ended_at}
+                  onChange={(e) => setFinishForm((prev) => ({ ...prev, ended_at: e.target.value }))}
+                />
+
+                {finishForm.outputs.map((output, index) => (
+                  <div key={index} className="rounded-xl border p-4 space-y-3">
+                    <select
+                      className="w-full rounded-xl border p-3"
+                      value={output.product_id}
+                      onChange={(e) => updateOutput(index, "product_id", e.target.value)}
+                    >
+                      <option value="">Produit fini</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      className="w-full rounded-xl border p-3"
+                      value={output.output_type}
+                      onChange={(e) => updateOutput(index, "output_type", e.target.value)}
+                    >
+                      <option value="principal">Principal</option>
+                      <option value="co_product">Co-produit</option>
+                    </select>
+
+                    <input
+                      type="number"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Quantité produite"
+                      value={output.produced_quantity}
+                      onChange={(e) => updateOutput(index, "produced_quantity", e.target.value)}
+                    />
+
+                    <select
+                      className="w-full rounded-xl border p-3"
+                      value={output.storage_warehouse_id}
+                      onChange={(e) => updateOutput(index, "storage_warehouse_id", e.target.value)}
+                    >
+                      <option value="">Dépôt destination</option>
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="date"
+                      className="w-full rounded-xl border p-3"
+                      value={output.expiry_date}
+                      onChange={(e) => updateOutput(index, "expiry_date", e.target.value)}
+                    />
+
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={output.is_ready_for_stock}
+                        onChange={(e) => updateOutput(index, "is_ready_for_stock", e.target.checked)}
+                      />
+                      Prêt à stocker
+                    </label>
+                  </div>
+                ))}
+
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-slate-800">Pertes</h3>
+                  <button
+                    type="button"
+                    onClick={addLoss}
+                    className="rounded-xl bg-amber-600 px-4 py-2 text-white"
+                  >
+                    Ajouter perte
+                  </button>
+                </div>
+
+                {finishForm.losses.map((loss, index) => (
+                  <div key={index} className="rounded-xl border p-4 space-y-3">
+                    <select
+                      className="w-full rounded-xl border p-3"
+                      value={loss.product_id}
+                      onChange={(e) => updateLoss(index, "product_id", e.target.value)}
+                    >
+                      <option value="">Produit</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="number"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Qté perdue"
+                      value={loss.lost_quantity}
+                      onChange={(e) => updateLoss(index, "lost_quantity", e.target.value)}
+                    />
+
+                    <input
+                      type="text"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Motif"
+                      value={loss.reason}
+                      onChange={(e) => updateLoss(index, "reason", e.target.value)}
+                    />
+
+                    <input
+                      type="text"
+                      className="w-full rounded-xl border p-3"
+                      placeholder="Notes"
+                      value={loss.notes}
+                      onChange={(e) => updateLoss(index, "notes", e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={finishProduction}
+                className="mt-4 w-full rounded-xl bg-emerald-700 px-4 py-3 text-white"
+              >
+                Terminer la fabrication
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-white p-5 shadow">
+            <h2 className="mb-4 text-xl font-semibold text-slate-800">Historique OF</h2>
+
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+              <div>
+                <h3 className="mb-2 font-semibold text-slate-700">Consommations</h3>
+                <div className="space-y-2">
+                  {(selectedOrder.consumptions ?? []).map((item) => (
+                    <div key={item.id} className="rounded-xl bg-slate-50 p-3">
+                      <div className="font-semibold">{item.product?.name ?? "-"}</div>
+                      <div className="text-sm text-slate-600">
+                        Qté : {formatQty(item.actual_quantity)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-2 font-semibold text-slate-700">Produits finis</h3>
+                <div className="space-y-2">
+                  {(selectedOrder.outputs ?? []).map((item) => (
+                    <div key={item.id} className="rounded-xl bg-emerald-50 p-3">
+                      <div className="font-semibold">{item.product?.name ?? "-"}</div>
+                      <div className="text-sm text-slate-600">
+                        Qté : {formatQty(item.produced_quantity)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-2 font-semibold text-slate-700">Pertes</h3>
+                <div className="space-y-2">
+                  {(selectedOrder.losses ?? []).map((item) => (
+                    <div key={item.id} className="rounded-xl bg-amber-50 p-3">
+                      <div className="font-semibold">{item.product?.name ?? "-"}</div>
+                      <div className="text-sm text-slate-600">
+                        Qté : {formatQty(item.lost_quantity)} / {item.reason}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

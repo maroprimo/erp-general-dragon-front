@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 import KpiCard from "../components/KpiCard";
+import { formatQty, formatMoney } from "../utils/formatters";
 import {
   ResponsiveContainer,
   LineChart,
@@ -47,10 +48,10 @@ export default function StockDashboardSite() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <KpiCard title="Valeur stock" value={`${data.kpis.total_stock_value} Ar`} />
+        <KpiCard title="Valeur stock" value={`${formatQty(data.kpis.total_stock_value)} Ar`} />
         <KpiCard title="Stocks critiques" value={data.kpis.critical_count} />
         <KpiCard title="Ruptures" value={data.kpis.out_of_stock_count} />
-        <KpiCard title="Pertes 30j" value={`${data.kpis.loss_value_30_days} Ar`} />
+        <KpiCard title="Pertes 30j" value={`${formatQty(data.kpis.loss_value_30_days)} Ar`} />
         <KpiCard title="Alertes" value={data.kpis.global_alert_count} />
       </div>
 
@@ -95,7 +96,7 @@ export default function StockDashboardSite() {
               <div key={item.id} className="rounded-xl bg-orange-50 p-3">
                 <div className="font-semibold">{item.product?.name}</div>
                 <div className="text-sm text-slate-600">
-                  Stock: {item.quantity_on_hand} / Min: {item.product?.min_stock ?? 0}
+                  Stock: {formatQty(item.quantity_on_hand)} / Min: {formatQty(item.product?.min_stock) ?? 0}
                 </div>
               </div>
             ))}

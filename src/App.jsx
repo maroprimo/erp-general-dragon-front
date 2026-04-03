@@ -31,6 +31,7 @@ import InterSiteRequests from "./pages/InterSiteRequests";
 import PurchaseDocuments from "./pages/PurchaseDocuments";
 import StockDashboardSite from "./pages/StockDashboardSite";
 import StockDashboardGlobal from "./pages/StockDashboardGlobal";
+import ProductsCatalog from "./pages/ProductsCatalog";
 
 export default function App() {
   useEffect(() => {
@@ -85,6 +86,8 @@ export default function App() {
   if (page === "purchaseDocuments") content = <PurchaseDocuments />;
   if (page === "stockDashboardSite") content = <StockDashboardSite />;
   if (page === "stockDashboardGlobal") content = <StockDashboardGlobal />;
+  if (page === "productsCatalog") content = <ProductsCatalog />;
+  
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>
       {content}

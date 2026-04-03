@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
 import { useAuth } from "../context/AuthContext";
+import { formatQty, formatMoney } from "../utils/formatters";
 
 export default function Stock() {
   const { sites, warehouses, loading: refsLoading } = useReferences();
@@ -52,12 +53,12 @@ export default function Stock() {
     loadStock(filters);
   };
 
-  const rowClass = (item) => {
-    if (item.stock_status === "out_of_stock") return "bg-red-100";
-    if (item.stock_status === "critical") return "bg-orange-100";
-    if (item.stock_status === "warning") return "bg-yellow-100";
-    return "hover:bg-slate-50";
-  };
+const rowClass = (item) => {
+  if (item.stock_status === "out_of_stock") return "bg-red-200 text-red-800 font-semibold";
+  if (item.stock_status === "critical") return "bg-red-100 text-red-700";
+  if (item.stock_status === "warning") return "bg-yellow-100 text-yellow-800";
+  return "hover:bg-slate-50";
+};
 
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
@@ -145,12 +146,26 @@ export default function Stock() {
                   <td className="px-4 py-3">{item.product?.category?.name ?? "-"}</td>
                   <td className="px-4 py-3">{item.site?.name ?? item.site_id}</td>
                   <td className="px-4 py-3">{item.warehouse?.name ?? item.warehouse_id}</td>
-                  <td className="px-4 py-3">{item.quantity_on_hand}</td>
-                  <td className="px-4 py-3">{item.quantity_available}</td>
-                  <td className="px-4 py-3">{item.product?.min_stock ?? 0}</td>
+                  <td className="px-4 py-3">{formatQty(item.quantity_on_hand)}</td>
+                  <td className="px-4 py-3">{formatQty(item.quantity_available)}</td>
+                  <td className="px-4 py-3">{formatQty(item.product?.min_stock) ?? 0}</td>
                   <td className="px-4 py-3">{item.product?.reorder_point ?? 0}</td>
-                  <td className="px-4 py-3">{item.average_unit_cost} Ar</td>
-                  <td className="px-4 py-3">{item.stock_status}</td>
+                  <td className="px-4 py-3">{formatMoney(item.average_unit_cost)} Ar</td>
+                  <td className="px-4 py-3">
+                  <span
+                    className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                      item.stock_status === "out_of_stock"
+                        ? "bg-red-200 text-red-800"
+                        : item.stock_status === "critical"
+                        ? "bg-red-100 text-red-700"
+                        : item.stock_status === "warning"
+                        ? "bg-yellow-100 text-yellow-800"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {item.stock_status}
+                  </span>
+                </td>
                   <td className="px-4 py-3">
                     {item.inter_site_transfer_available ? (
                       <span className="rounded-lg bg-emerald-100 px-2 py-1 text-emerald-700">
