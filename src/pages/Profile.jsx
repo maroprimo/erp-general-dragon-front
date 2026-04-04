@@ -4,35 +4,36 @@ import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 
 export default function Profile() {
-  const { user, refreshUser } = useAuth();
+const { user, setUser, refreshUser } = useAuth();
   const [file, setFile] = useState(null);
 
-  const submitAvatar = async (e) => {
+const submitAvatar = async (e) => {
     e.preventDefault();
+    if (!file) return;
 
-    if (!file) {
-      toast.error("Choisir une image");
-      return;
-    }
+    const formData = new FormData();
+    formData.append("avatar", file);
 
     try {
-      const formData = new FormData();
-      formData.append("avatar", file);
+        const res = await api.post("/me/avatar", formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+        });
 
-      const res = await api.post("/me/avatar", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+        // 1. On vérifie si on a bien reçu le user
+        if (res.data && res.data.user) {
+            // 2. On met à jour le state global (AuthContext)
+            setUser(res.data.user); 
+            toast.success("Avatar mis à jour !");
+        }
 
-      toast.success(res.data.message || "Avatar mis à jour");
-
-      if (refreshUser) {
-        await refreshUser();
-      }
     } catch (err) {
-      console.error(err);
-      toast.error("Erreur upload avatar");
+        console.error("Erreur upload:", err);
+        // On affiche l'erreur seulement si la requête a échoué (400, 500, etc.)
+        toast.error(err.response?.data?.message || "Erreur lors de la mise à jour");
     }
-  };
+};
+
+
 
   return (
     <div className="space-y-6">
@@ -44,11 +45,21 @@ export default function Profile() {
       <div className="rounded-2xl bg-white p-6 shadow">
         <div className="mb-4 flex items-center gap-4">
           {user?.avatar_url ? (
-            <img
-              src={user.avatar_url}
-              alt="avatar"
-              className="h-20 w-20 rounded-full object-cover"
-            />
+<img 
+  // On utilise l'URL absolue + le chemin de la BDD
+  src={`https://stock.dragonroyalmg.com/uploads/${user?.avatar_path}`} 
+  key={user?.avatar_path} // INDISPENSABLE pour rafraîchir l'image dès que le nom change
+  alt="avatar"
+  className="h-20 w-20 rounded-full object-cover border-2 border-blue-500"
+  onError={(e) => {
+    // Si /uploads/ échoue, on tente /storage/ (juste au cas où)
+    if (!e.target.src.includes('/storage/')) {
+        e.target.src = `https://stock.dragonroyalmg.com/storage/${user?.avatar_path}`;
+    } else {
+        e.target.src = `https://ui-avatars.com/api/?name=${user?.name}`;
+    }
+  }}
+/>
           ) : (
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-slate-200 text-slate-600">
               ?

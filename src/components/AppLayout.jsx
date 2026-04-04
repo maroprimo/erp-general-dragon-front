@@ -64,6 +64,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "users", label: "Utilisateurs", roles: ["pdg"] },
     { key: "auditLogs", label: "Audit Logs", roles: ["pdg"] },
     { key: "productsCatalog", label: "Gestion Produits", roles: ["pdg", "admin", "stock", "achat"] },
+    { key: "profile", label: "Profile", roles: ["pdg", "admin", "stock", "achat"] },
   ];
 
   const filteredNav = navItems.filter((item) => item.roles.includes(user?.role));
@@ -126,11 +127,15 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               {user?.avatar_url ? (
-                <img
-                  src={user.avatar_url}
-                  alt="avatar"
-                  className="h-10 w-10 rounded-full object-cover"
-                />
+<img 
+  src={`https://stock.dragonroyalmg.com/uploads/${user.avatar_path}`} 
+  alt="avatar"
+  className="h-10 w-10 rounded-full object-cover"
+  onError={(e) => {
+    console.log("Erreur de chargement sur l'URL :", e.target.src);
+    e.target.src = "https://ui-avatars.com/api/?name=" + user.name; // Image de secours si ça rate
+  }}
+/>
               ) : (
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-slate-600">
                   ?

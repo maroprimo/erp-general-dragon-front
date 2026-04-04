@@ -208,8 +208,7 @@ const loadData = async () => {
             <img 
               src={`https://stock.dragonroyalmg.com/uploads/${product.image_path}`} 
               alt={product.name} 
-              className="w-20 h-20 object-cover"
-            />
+              className="mb-3 h-40 w-full rounded-xl object-cover" />
             ) : (
               <div className="mb-3 flex h-40 w-full items-center justify-center rounded-xl bg-slate-100 text-slate-500">
                 Pas d’image

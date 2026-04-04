@@ -57,6 +57,7 @@ export function AuthProvider({ children }) {
       value={{
         token,
         user,
+        setUser, // <-- IL FAUT AJOUTER CETTE LIGNE ICI
         loading,
         login,
         logout,
@@ -71,3 +72,5 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
+
+

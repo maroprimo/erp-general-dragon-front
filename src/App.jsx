@@ -32,6 +32,7 @@ import PurchaseDocuments from "./pages/PurchaseDocuments";
 import StockDashboardSite from "./pages/StockDashboardSite";
 import StockDashboardGlobal from "./pages/StockDashboardGlobal";
 import ProductsCatalog from "./pages/ProductsCatalog";
+import Profile from "./pages/Profile";
 
 export default function App() {
   useEffect(() => {
@@ -87,6 +88,7 @@ export default function App() {
   if (page === "stockDashboardSite") content = <StockDashboardSite />;
   if (page === "stockDashboardGlobal") content = <StockDashboardGlobal />;
   if (page === "productsCatalog") content = <ProductsCatalog />;
+  if (page === "profile") content = <Profile />;
   
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>

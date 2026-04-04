@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { formatQty, formatMoney } from "../utils/formatters";
 
 // Petit utilitaire pour les couleurs des statuts
 const getStatusBadge = (status) => {
@@ -69,11 +70,11 @@ export default function ProductionLive() {
                   <div className="text-xs text-slate-400">ID Recette: {item.recipe_id}</div>
                 </td>
                 <td className="px-6 py-4 text-center font-semibold text-slate-700">
-                  {item.planned_quantity}
+                  {formatQty(item.planned_quantity)}
                 </td>
                 <td className="px-6 py-4 text-center">
                    <span className={item.produced_quantity > 0 ? "font-bold text-slate-800" : "text-slate-400"}>
-                     {item.produced_quantity ?? "0"}
+                     {formatQty(item.produced_quantity) ?? "0"}
                    </span>
                 </td>
                 <td className="px-6 py-4 text-center">
