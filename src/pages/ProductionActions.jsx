@@ -60,8 +60,25 @@ export default function ProductionActions() {
       const res = await api.get(`/production/orders/${id}`);
       setSelectedOrder(res.data);
 
-      setConsumptionForm({
-        consumptions: [
+const recipeLines = res.data.recipe?.lines ?? [];
+
+const factor =
+  Number(res.data.planned_quantity || 0) /
+  Math.max(Number(res.data.recipe?.yield_quantity || 1), 0.0001);
+
+setConsumptionForm({
+  consumptions:
+    recipeLines.length > 0
+      ? recipeLines.map((line) => ({
+          product_id: line.ingredient_product_id,
+          warehouse_id: res.data.warehouse_id ?? "",
+          storage_location_id: "",
+          actual_quantity:
+            Number(line.quantity_in_stock_unit || line.quantity || 0) * factor,
+          unit_cost: "",
+          notes: "Théorique fiche technique",
+        }))
+      : [
           {
             product_id: "",
             warehouse_id: "",
@@ -71,7 +88,7 @@ export default function ProductionActions() {
             notes: "",
           },
         ],
-      });
+});
 
       setFinishForm({
         ended_at: "",
@@ -107,6 +124,7 @@ export default function ProductionActions() {
   };
 
   const addConsumptionLine = () => {
+    
     setConsumptionForm((prev) => ({
       consumptions: [
         ...prev.consumptions,
@@ -120,6 +138,8 @@ export default function ProductionActions() {
         },
       ],
     }));
+    
+
   };
 
   const updateConsumptionLine = (index, field, value) => {
@@ -145,6 +165,8 @@ export default function ProductionActions() {
       toast.success(res.data.message || "Consommations enregistrées");
       openOrder(selectedOrder.id);
       loadOrders();
+      const base = import.meta.env.VITE_BACKEND_WEB_URL || "";
+    window.open(`${base}/print/production-consumption-ticket/${selectedOrder.id}`, "_blank");
     } catch (err) {
       console.error(err);
       toast.error("Erreur enregistrement consommations");
@@ -304,14 +326,14 @@ export default function ProductionActions() {
                   <div className="font-semibold text-slate-800">{selectedOrder.order_number}</div>
                 </div>
 
-<button
-  onClick={startProduction}
-  // Le bouton se grise si le statut est déjà in_progress, finished ou cancelled
-  disabled={selectedOrder.status !== "draft" && selectedOrder.status !== "planned"}
-  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed"
->
-  {selectedOrder.status === "in_progress" ? "Fabrication en cours..." : "Démarrer la fabrication"}
-</button>
+              <button
+                onClick={startProduction}
+                // Le bouton se grise si le statut est déjà in_progress, finished ou cancelled
+                disabled={selectedOrder.status !== "draft" && selectedOrder.status !== "planned"}
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {selectedOrder.status === "in_progress" ? "Fabrication en cours..." : "Démarrer la fabrication"}
+              </button>
 
                 <div className="rounded-xl bg-slate-50 p-4">
                   <div className="text-sm text-slate-500">Rappel workflow</div>

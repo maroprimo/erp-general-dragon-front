@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
 import toast from "react-hot-toast";
+import { formatQty, formatMoney, formatDateTime } from "../utils/formatters";
 
 export default function Recipes() {
   const { products, loading } = useReferences();
@@ -180,6 +181,24 @@ export default function Recipes() {
     return <div className="p-6">Chargement des références...</div>;
   }
 
+
+  const getUnitById = (id) => units.find((u) => String(u.id) === String(id));
+  const getProductById = (id) => products.find((p) => String(p.id) === String(id));
+
+  const computeStockQtyPreview = (line) => {
+    const product = getProductById(line.ingredient_product_id);
+    const recipeUnit = getUnitById(line.unit_id);
+    const stockUnit = product?.stock_unit;
+
+    if (!product || !recipeUnit || !stockUnit || !line.quantity) return "";
+
+    const recipeRatio = Number(recipeUnit.ratio_base || 1);
+    const stockRatio = Number(stockUnit.ratio_base || 1);
+    const qty = Number(line.quantity || 0);
+
+    const stockQty = qty * (recipeRatio / stockRatio);
+    return stockQty;
+  };
   return (
     <div className="space-y-6">
       <div>
@@ -259,6 +278,9 @@ export default function Recipes() {
                       </option>
                     ))}
                   </select>
+                  <div className="text-xs text-slate-500">
+                    Unité stock : {getProductById(line.ingredient_product_id)?.stock_unit?.name ?? "-"}
+                  </div>
 
                   <input
                     className="rounded-xl border p-3"
@@ -281,6 +303,9 @@ export default function Recipes() {
                       </option>
                     ))}
                   </select>
+                  <div className="text-xs text-slate-500">
+                    Quantité normalisée stock : {computeStockQtyPreview(line) ? computeStockQtyPreview(line).toFixed(3) : "-"}
+                  </div>
 
                   <input
                     className="rounded-xl border p-3"
@@ -356,7 +381,7 @@ export default function Recipes() {
             <div className="rounded-xl bg-slate-50 p-4">
               <div className="text-sm text-slate-500">Rendement</div>
               <div className="font-semibold text-slate-800">
-                {selectedRecipe.yield_quantity} {selectedRecipe.yield_unit?.name ?? ""}
+                {formatQty(selectedRecipe.yield_quantity)} {selectedRecipe.yield_unit?.name ?? ""}
               </div>
             </div>
 
@@ -382,7 +407,7 @@ export default function Recipes() {
                 {(selectedRecipe.lines ?? []).map((line) => (
                   <tr key={line.id} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-3">{line.ingredient?.name ?? "-"}</td>
-                    <td className="px-4 py-3">{line.quantity}</td>
+                    <td className="px-4 py-3">{formatQty(line.quantity)}</td>
                     <td className="px-4 py-3">{line.unit?.name ?? "-"}</td>
                     <td className="px-4 py-3">{line.line_type}</td>
                   </tr>

@@ -33,6 +33,8 @@ import StockDashboardSite from "./pages/StockDashboardSite";
 import StockDashboardGlobal from "./pages/StockDashboardGlobal";
 import ProductsCatalog from "./pages/ProductsCatalog";
 import Profile from "./pages/Profile";
+import TransferScanMobile from "./pages/TransferScanMobile";
+import TransferTrackingDashboard from "./pages/TransferTrackingDashboard";
 
 export default function App() {
   useEffect(() => {
@@ -44,6 +46,15 @@ export default function App() {
 
     window.addEventListener("open-page", handler);
     return () => window.removeEventListener("open-page", handler);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openPage = params.get("open_page");
+
+    if (openPage) {
+      setPage(openPage);
+    }
   }, []);
 
   const { isAuthenticated, loading, logout, user } = useAuth();
@@ -89,6 +100,8 @@ export default function App() {
   if (page === "stockDashboardGlobal") content = <StockDashboardGlobal />;
   if (page === "productsCatalog") content = <ProductsCatalog />;
   if (page === "profile") content = <Profile />;
+  if (page === "transferScanMobile") content = <TransferScanMobile />;
+  if (page === "transferTrackingDashboard") content = <TransferTrackingDashboard />;
   
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>

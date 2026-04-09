@@ -6,6 +6,8 @@ import toast from "react-hot-toast";
 export default function NewProductionOrder() {
   const { sites, warehouses, loading } = useReferences();
   const [recipes, setRecipes] = useState([]);
+  const [simulation, setSimulation] = useState(null);
+  const [simLoading, setSimLoading] = useState(false);
 
   const [form, setForm] = useState({
     site_id: "",
@@ -60,6 +62,37 @@ export default function NewProductionOrder() {
       toast.error("Erreur lors de la création de l’ordre de fabrication");
     }
   };
+
+  const simulateProduction = async () => {
+  if (!form.recipe_id || !form.site_id || !form.planned_quantity) {
+    setSimulation(null);
+    return;
+  }
+
+    try {
+      setSimLoading(true);
+
+      const payload = {
+        recipe_id: Number(form.recipe_id),
+        site_id: Number(form.site_id),
+        warehouse_id: form.warehouse_id ? Number(form.warehouse_id) : null,
+        planned_quantity: Number(form.planned_quantity),
+      };
+
+      const res = await api.post("/production/orders/simulate", payload);
+      setSimulation(res.data);
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible de simuler la fabrication");
+    } finally {
+      setSimLoading(false);
+    }
+  };
+
+
+  useEffect(() => {
+    simulateProduction();
+  }, [form.recipe_id, form.site_id, form.warehouse_id, form.planned_quantity]);
 
   if (loading) {
     return <div className="p-6">Chargement des références...</div>;
@@ -158,9 +191,50 @@ export default function NewProductionOrder() {
           </button>
         </form>
       </div>
+{simulation && (
+  <div className="rounded-2xl bg-white p-6 shadow">
+    <h2 className="mb-4 text-2xl font-bold text-slate-800">Simulation ingrédients</h2>
 
+    {simLoading ? (
+      <div>Calcul en cours...</div>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left">
+          <thead className="border-b border-slate-200">
+            <tr className="text-slate-600">
+              <th className="px-4 py-3">Ingrédient</th>
+              <th className="px-4 py-3">Qté fiche</th>
+              <th className="px-4 py-3">Unité fiche</th>
+              <th className="px-4 py-3">Qté recalculée</th>
+              <th className="px-4 py-3">Qté unité stock</th>
+              <th className="px-4 py-3">Unité stock</th>
+              <th className="px-4 py-3">Stock dispo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {simulation.lines.map((line, idx) => (
+              <tr
+                key={idx}
+                className={`border-b border-slate-100 ${line.is_short ? "bg-red-100 text-red-700 font-semibold" : "hover:bg-slate-50"}`}
+              >
+                <td className="px-4 py-3">{line.product_name}</td>
+                <td className="px-4 py-3">{line.recipe_quantity_initial}</td>
+                <td className="px-4 py-3">{line.recipe_unit_name}</td>
+                <td className="px-4 py-3">{line.quantity_recalculated.toFixed(3)}</td>
+                <td className="px-4 py-3">{line.quantity_in_stock_unit.toFixed(3)}</td>
+                <td className="px-4 py-3">{line.stock_unit_name}</td>
+                <td className="px-4 py-3">{line.stock_available.toFixed(3)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+)}
       {message && <div className="mt-4 text-emerald-700 font-medium">{message}</div>}
       {error && <div className="mt-4 text-red-600 font-medium">{error}</div>}
     </div>
+    
   );
 }

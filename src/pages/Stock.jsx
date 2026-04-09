@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { formatQty, formatMoney } from "../utils/formatters";
 
 export default function Stock() {
-  const { sites, warehouses, loading: refsLoading } = useReferences();
+  const { sites, warehouses,units, loading: refsLoading } = useReferences();
   const { user } = useAuth();
 
   const [stocks, setStocks] = useState([]);
@@ -146,7 +146,9 @@ const rowClass = (item) => {
                   <td className="px-4 py-3">{item.product?.category?.name ?? "-"}</td>
                   <td className="px-4 py-3">{item.site?.name ?? item.site_id}</td>
                   <td className="px-4 py-3">{item.warehouse?.name ?? item.warehouse_id}</td>
-                  <td className="px-4 py-3">{formatQty(item.quantity_on_hand)}</td>
+                  <td className="px-4 py-3">{formatQty(item.quantity_on_hand)} {
+                    units?.find(u => u.id === item.product?.stock_unit_id)?.name
+                  }</td>
                   <td className="px-4 py-3">{formatQty(item.quantity_available)}</td>
                   <td className="px-4 py-3">{formatQty(item.product?.min_stock) ?? 0}</td>
                   <td className="px-4 py-3">{item.product?.reorder_point ?? 0}</td>

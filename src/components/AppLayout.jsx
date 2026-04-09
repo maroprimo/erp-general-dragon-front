@@ -65,6 +65,9 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "auditLogs", label: "Audit Logs", roles: ["pdg"] },
     { key: "productsCatalog", label: "Gestion Produits", roles: ["pdg", "admin", "stock", "achat"] },
     { key: "profile", label: "Profile", roles: ["pdg", "admin", "stock", "achat"] },
+    { key: "transferScanMobile", label: "Scan Transfert", roles: ["pdg", "admin", "stock", "controle", "chauffeur", "securite"] },
+    { key: "transferTrackingDashboard", label: "Suivi Transfert", roles: ["pdg", "admin", "stock", "controle", "logistique"] },
+    
   ];
 
   const filteredNav = navItems.filter((item) => item.roles.includes(user?.role));
