@@ -98,10 +98,58 @@ export default function InterSiteRequest() {
       },
     ],
   });
-
+/*
   const role = String(user?.role || "").toLowerCase();
   const isAdmin = ["pdg", "admin"].includes(role);
 
+    const canApproveRequest =
+    selectedRequest &&
+    selectedRequest.status === "pending" &&
+    (isAdmin ||
+      Number(user?.site_id) === Number(selectedRequest.from_site_id));
+*/
+
+const role = String(user?.role || "").trim().toLowerCase();
+
+const isGlobalApprover = [
+  "pdg",
+  "admin",
+  "administrateur",
+  "superadmin",
+  "super_admin",
+].includes(role);
+
+const isSourceManagerRole = [
+  "manager",
+  "responsable",
+  "coordinateur",
+  "coordonnateur",
+  "controleur",
+  "contrôleur",
+  "stock",
+].includes(role);
+
+const isDriverRole = [
+  "driver",
+  "chauffeur",
+  "livreur",
+  "courier",
+].includes(role);
+
+const selectedFromSiteId = Number(
+  selectedRequest?.from_site_id ?? selectedRequest?.from_site?.id ?? 0
+);
+
+const userSiteId = Number(user?.site_id ?? 0);
+
+const canApproveRequest =
+  !!selectedRequest &&
+  String(selectedRequest.status || "").toLowerCase() === "pending" &&
+  !isDriverRole &&
+  (
+    isGlobalApprover ||
+    (isSourceManagerRole && userSiteId === selectedFromSiteId)
+  );
   useEffect(() => {
     loadRequests();
   }, []);
@@ -357,11 +405,7 @@ export default function InterSiteRequest() {
     }
   };
 
-  const canApproveRequest =
-    selectedRequest &&
-    selectedRequest.status === "pending" &&
-    (isAdmin ||
-      Number(user?.site_id) === Number(selectedRequest.from_site_id));
+
 
   const approveRequest = async () => {
     if (!selectedRequest?.id) return;
