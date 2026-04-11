@@ -1,10 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import api from "../services/api";
-import { useAuth } from "../context/AuthContext";
-import useReferences from "../hooks/useReferences";
 import toast from "react-hot-toast";
-import { formatDateTime, formatQty } from "../utils/formatters";
+
+function asArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.data)) return payload.data.data;
+  return [];
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString("fr-FR");
+  } catch {
+    return value;
+  }
+}
+
+function formatQty(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const num = Number(value);
+  if (Number.isNaN(num)) return value;
+  return num.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
+}
 
 function extractToken(value) {
   if (!value) return "";
@@ -12,106 +35,71 @@ function extractToken(value) {
   try {
     const url = new URL(value);
     const parts = url.pathname.split("/").filter(Boolean);
-    const scanIndex = parts.indexOf("scan-transfer");
-
-    if (scanIndex >= 0 && parts[scanIndex + 1]) {
-      return parts[scanIndex + 1];
+    const idx = parts.indexOf("scan-transfer");
+    if (idx >= 0 && parts[idx + 1]) {
+      return parts[idx + 1];
     }
   } catch (_) {
-    // Si ce n'est pas une URL complète, on continue
+    // rien
   }
 
   return value.replace(/^.*scan-transfer\//, "").trim();
 }
 
-const transportBadgeClass = (status) => {
-  switch (status) {
-    case "waiting":
-      return "bg-slate-100 text-slate-700";
-    case "security_verified":
-      return "bg-orange-100 text-orange-700";
-    case "picked_up":
-      return "bg-blue-100 text-blue-700";
-    case "received":
-      return "bg-emerald-100 text-emerald-700";
-    case "rejected":
-      return "bg-red-100 text-red-700";
-    default:
-      return "bg-slate-100 text-slate-700";
-  }
-};
+function Badge({ children, tone = "slate" }) {
+  const tones = {
+    slate: "bg-slate-100 text-slate-700",
+    blue: "bg-blue-100 text-blue-700",
+    emerald: "bg-emerald-100 text-emerald-700",
+    amber: "bg-amber-100 text-amber-700",
+    red: "bg-red-100 text-red-700",
+  };
 
-const businessBadgeClass = (status) => {
-  switch (status) {
-    case "pending":
-      return "bg-slate-100 text-slate-700";
-    case "approved":
-      return "bg-blue-100 text-blue-700";
-    case "in_transit":
-      return "bg-amber-100 text-amber-700";
-    case "completed":
-      return "bg-emerald-100 text-emerald-700";
-    case "rejected":
-      return "bg-red-100 text-red-700";
-    default:
-      return "bg-slate-100 text-slate-700";
-  }
-};
+  return (
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${tones[tone] || tones.slate}`}>
+      {children}
+    </span>
+  );
+}
+
+function InfoCard({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-800 break-words">{value || "-"}</div>
+    </div>
+  );
+}
 
 export default function TransferScanMobile() {
-  const { user } = useAuth();
-  const { warehouses, loading: refsLoading } = useReferences();
-
   const [scanToken, setScanToken] = useState("");
-  const [document, setDocument] = useState(null);
+  const [transfer, setTransfer] = useState(null);
+  const [allWarehouses, setAllWarehouses] = useState([]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const [form, setForm] = useState({
-    from_warehouse_id: "",
-    to_warehouse_id: "",
-    reject_reason: "",
-    notes: "",
-    latitude: "",
-    longitude: "",
-  });
-
-  const [photo, setPhoto] = useState(null);
+  const [fromWarehouseId, setFromWarehouseId] = useState("");
+  const [toWarehouseId, setToWarehouseId] = useState("");
+  const [rejectReason, setRejectReason] = useState("");
 
   const scannerRef = useRef(null);
   const scannerActiveRef = useRef(false);
 
-  const sourceWarehouses = useMemo(() => {
-    if (!document) return [];
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        const res = await api.get("/warehouses");
+        setAllWarehouses(asArray(res.data));
+      } catch (err) {
+        console.error(err);
+      }
+    };
 
-    const all = warehouses ?? [];
+    loadWarehouses();
+  }, []);
 
-    const filtered = all.filter(
-      (w) =>
-        Number(w.site_id) === Number(document.from_site_id) ||
-        Number(w.id) === Number(document.from_warehouse_id)
-    );
-
-    return filtered.length > 0 ? filtered : all;
-  }, [warehouses, document]);
-
-  const destinationWarehouses = useMemo(() => {
-    if (!document) return [];
-
-    const all = warehouses ?? [];
-
-    const filtered = all.filter(
-      (w) =>
-        Number(w.site_id) === Number(document.to_site_id) ||
-        Number(w.id) === Number(document.to_warehouse_id)
-    );
-
-    return filtered.length > 0 ? filtered : all;
-  }, [warehouses, document]);
-
-  const history = document?.scan_events ?? document?.scanEvents ?? [];
-
-  const loadDocument = async (tokenValue) => {
+  const loadTransfer = async (tokenValue) => {
     const token = extractToken(tokenValue || scanToken);
 
     if (!token) {
@@ -122,27 +110,14 @@ export default function TransferScanMobile() {
     try {
       setLoading(true);
       const res = await api.get(`/transfer-scan/${token}`);
-      const data = res.data;
-
-      setDocument(data);
+      const data = res.data?.data || res.data || null;
+      setTransfer(data);
       setScanToken(token);
-
-      setForm((prev) => ({
-        ...prev,
-        from_warehouse_id: data.from_warehouse_id
-          ? String(data.from_warehouse_id)
-          : "",
-        to_warehouse_id: data.to_warehouse_id
-          ? String(data.to_warehouse_id)
-          : "",
-        reject_reason: "",
-        notes: "",
-      }));
+      setFromWarehouseId(String(data?.from_warehouse_id || ""));
+      setToWarehouseId(String(data?.to_warehouse_id || ""));
     } catch (err) {
       console.error(err);
-      toast.error(
-        err?.response?.data?.message || "Impossible de charger le bon"
-      );
+      toast.error(err?.response?.data?.message || "Impossible de charger le bon de transfert");
     } finally {
       setLoading(false);
     }
@@ -151,44 +126,19 @@ export default function TransferScanMobile() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("scan_token");
-
     if (token) {
       setScanToken(token);
-      loadDocument(token);
+      loadTransfer(token);
     }
   }, []);
-
-  useEffect(() => {
-    if (!document) return;
-
-    setForm((prev) => ({
-      ...prev,
-      from_warehouse_id:
-        prev.from_warehouse_id ||
-        (document.from_warehouse_id
-          ? String(document.from_warehouse_id)
-          : "") ||
-        (sourceWarehouses[0]?.id ? String(sourceWarehouses[0].id) : ""),
-      to_warehouse_id:
-        prev.to_warehouse_id ||
-        (document.to_warehouse_id ? String(document.to_warehouse_id) : "") ||
-        (destinationWarehouses[0]?.id
-          ? String(destinationWarehouses[0].id)
-          : ""),
-    }));
-  }, [document, sourceWarehouses, destinationWarehouses]);
 
   useEffect(() => {
     if (!cameraOpen) return;
     if (scannerActiveRef.current) return;
 
     const scanner = new Html5QrcodeScanner(
-      "qr-reader",
-      {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        rememberLastUsedCamera: true,
-      },
+      "transfer-qr-reader",
+      { fps: 10, qrbox: { width: 240, height: 240 } },
       false
     );
 
@@ -205,7 +155,7 @@ export default function TransferScanMobile() {
         scannerActiveRef.current = false;
 
         setScanToken(token);
-        loadDocument(token);
+        loadTransfer(token);
       },
       () => {}
     );
@@ -219,256 +169,219 @@ export default function TransferScanMobile() {
     };
   }, [cameraOpen]);
 
-  const captureLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error("Géolocalisation non disponible");
+  const fromSiteWarehouses = useMemo(() => {
+    if (!transfer?.from_site_id) return allWarehouses;
+    return allWarehouses.filter(
+      (w) => Number(w.site_id) === Number(transfer.from_site_id)
+    );
+  }, [allWarehouses, transfer]);
+
+  const toSiteWarehouses = useMemo(() => {
+    if (!transfer?.to_site_id) return allWarehouses;
+    return allWarehouses.filter(
+      (w) => Number(w.site_id) === Number(transfer.to_site_id)
+    );
+  }, [allWarehouses, transfer]);
+
+  const canSecurityCheck =
+    !!transfer &&
+    !transfer.rejected_at &&
+    !transfer.security_verified_at &&
+    !transfer.destination_received_at;
+
+  const canDriverPickup =
+    !!transfer &&
+    !transfer.rejected_at &&
+    !!transfer.security_verified_at &&
+    !transfer.driver_picked_at &&
+    !transfer.destination_received_at;
+
+  const canDestinationReceive =
+    !!transfer &&
+    !transfer.rejected_at &&
+    !!transfer.security_verified_at &&
+    !!transfer.driver_picked_at &&
+    !transfer.destination_received_at;
+
+  const canReject =
+    !!transfer &&
+    !transfer.rejected_at &&
+    !transfer.driver_picked_at &&
+    !transfer.destination_received_at;
+
+  const workflowTone = useMemo(() => {
+    if (!transfer) return "slate";
+    if (transfer.rejected_at) return "red";
+    if (transfer.destination_received_at) return "emerald";
+    if (transfer.driver_picked_at) return "blue";
+    if (transfer.security_verified_at) return "amber";
+    return "slate";
+  }, [transfer]);
+
+  const securityCheck = async () => {
+    if (!fromWarehouseId || !toWarehouseId) {
+      toast.error("Choisir dépôt source et dépôt destination");
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setForm((prev) => ({
-          ...prev,
-          latitude: String(position.coords.latitude),
-          longitude: String(position.coords.longitude),
-        }));
-        toast.success("Position GPS récupérée");
-      },
-      () => {
-        toast.error("Impossible de récupérer la position GPS");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
-      }
-    );
-  };
-
-  const submitMultipart = async (endpoint, extraFields = {}) => {
     try {
-      const payload = new FormData();
-
-      Object.entries(extraFields).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== "") {
-          payload.append(key, value);
-        }
+      setActionLoading(true);
+      const res = await api.post(`/transfer-scan/${scanToken}/security-check`, {
+        from_warehouse_id: Number(fromWarehouseId),
+        to_warehouse_id: Number(toWarehouseId),
       });
-
-      if (form.notes) payload.append("notes", form.notes);
-      if (form.latitude) payload.append("latitude", form.latitude);
-      if (form.longitude) payload.append("longitude", form.longitude);
-      if (photo) payload.append("photo", photo);
-
-      const res = await api.post(endpoint, payload, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
-      toast.success(res.data.message || "Action effectuée");
-      setDocument(res.data.data);
-      setPhoto(null);
-      setForm((prev) => ({
-        ...prev,
-        notes: "",
-        reject_reason: "",
-      }));
+      toast.success(res.data?.message || "Bon vérifié par sécurité");
+      setTransfer(res.data?.data || res.data || null);
     } catch (err) {
       console.error(err);
-      toast.error(err?.response?.data?.message || "Erreur lors du scan");
+      toast.error(err?.response?.data?.message || "Erreur vérification sécurité");
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const isAdmin = ["pdg", "admin"].includes(user?.role);
-  const isSourceSite =
-    Number(user?.site_id) === Number(document?.from_site_id);
-  const isDestinationSite =
-    Number(user?.site_id) === Number(document?.to_site_id);
+  const driverPickup = async () => {
+    try {
+      setActionLoading(true);
+      const res = await api.post(`/transfer-scan/${scanToken}/driver-pickup`);
+      toast.success(res.data?.message || "Prise en charge chauffeur enregistrée");
+      setTransfer(res.data?.data || res.data || null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.response?.data?.message || "Erreur prise en charge chauffeur");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
-  const canSecurityCheck =
-    document?.status === "approved" &&
-    document?.transport_status === "waiting" &&
-    (isSourceSite || isAdmin);
+  const destinationReceive = async () => {
+    if (!toWarehouseId) {
+      toast.error("Choisir le dépôt destination");
+      return;
+    }
 
-  const canReject =
-    ["pending", "approved"].includes(document?.status) &&
-    document?.transport_status === "waiting" &&
-    (isSourceSite || isAdmin);
+    try {
+      setActionLoading(true);
+      const res = await api.post(`/transfer-scan/${scanToken}/destination-receive`, {
+        to_warehouse_id: Number(toWarehouseId),
+      });
+      toast.success(res.data?.message || "Réception destination enregistrée");
+      setTransfer(res.data?.data || res.data || null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.response?.data?.message || "Erreur réception destination");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
-  const canDriverPickup =
-    document?.status === "in_transit" &&
-    document?.transport_status === "security_verified";
+  const rejectTransfer = async () => {
+    if (!rejectReason.trim()) {
+      toast.error("Indiquer le motif du rejet");
+      return;
+    }
 
-  const canReceive =
-    document?.status === "in_transit" &&
-    ["security_verified", "picked_up"].includes(document?.transport_status) &&
-    (isDestinationSite || isAdmin);
-
-  if (refsLoading) {
-    return <div className="p-6">Chargement des références...</div>;
-  }
+    try {
+      setActionLoading(true);
+      const res = await api.post(`/transfer-scan/${scanToken}/reject`, {
+        reject_reason: rejectReason,
+      });
+      toast.success(res.data?.message || "Bon rejeté");
+      setTransfer(res.data?.data || res.data || null);
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.response?.data?.message || "Erreur rejet du transfert");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">
-          Scan transfert mobile
-        </h1>
-        <p className="text-slate-500">
-          Sécurité, chauffeur et réception finale via QR code.
-        </p>
-      </div>
+    <div className="min-h-screen bg-slate-100">
+      <div className="mx-auto w-full max-w-6xl p-3 sm:p-4 md:p-6 space-y-4">
+        <div className="rounded-3xl bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Scan transfert</h1>
+              <p className="text-sm text-slate-500">
+                Sécurité → Chauffeur → Réception destination.
+              </p>
+            </div>
 
-      <div className="rounded-2xl bg-white p-5 shadow space-y-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <input
-            className="rounded-xl border p-3"
-            placeholder="Token ou URL QR"
-            value={scanToken}
-            onChange={(e) => setScanToken(e.target.value)}
-          />
-
-          <button
-            onClick={() => loadDocument(scanToken)}
-            className="rounded-xl bg-slate-900 px-4 py-3 text-white"
-          >
-            Charger le bon
-          </button>
-
-          <button
-            onClick={() => setCameraOpen((prev) => !prev)}
-            className="rounded-xl bg-blue-700 px-4 py-3 text-white"
-          >
-            {cameraOpen ? "Fermer caméra" : "Scanner avec caméra"}
-          </button>
+            <Badge tone={workflowTone}>
+              {transfer?.transport_status || transfer?.status || "waiting"}
+            </Badge>
+          </div>
         </div>
 
-        {cameraOpen && (
-          <div className="rounded-2xl border p-4">
-            <div id="qr-reader" />
+        <div className="rounded-3xl bg-white p-4 shadow-sm space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto]">
+            <input
+              className="rounded-2xl border border-slate-200 p-3 text-sm"
+              placeholder="Coller le token ou l’URL du QR transfert"
+              value={scanToken}
+              onChange={(e) => setScanToken(e.target.value)}
+            />
+
+            <button
+              onClick={() => loadTransfer(scanToken)}
+              className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Charger
+            </button>
+
+            <button
+              onClick={() => setCameraOpen((p) => !p)}
+              className="rounded-2xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white"
+            >
+              {cameraOpen ? "Fermer caméra" : "Scanner"}
+            </button>
+          </div>
+
+          {cameraOpen && (
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <div id="transfer-qr-reader" />
+            </div>
+          )}
+        </div>
+
+        {loading && (
+          <div className="rounded-3xl bg-white p-4 shadow-sm text-slate-500">
+            Chargement...
           </div>
         )}
-      </div>
 
-      {loading && <div>Chargement...</div>}
-
-      {document && (
-        <>
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Bon</div>
-                <div className="font-semibold text-slate-800">
-                  {document.request_number}
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Flux</div>
-                <div className="font-semibold text-slate-800">
-                  {document.from_site?.name} → {document.to_site?.name}
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Statut métier</div>
-                <div className="mt-1">
-                  <span
-                    className={`rounded-lg px-2 py-1 text-xs font-semibold ${businessBadgeClass(
-                      document.status
-                    )}`}
-                  >
-                    {document.status}
-                  </span>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Statut transport</div>
-                <div className="mt-1">
-                  <span
-                    className={`rounded-lg px-2 py-1 text-xs font-semibold ${transportBadgeClass(
-                      document.transport_status
-                    )}`}
-                  >
-                    {document.transport_status}
-                  </span>
-                </div>
-              </div>
+        {transfer && (
+          <>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <InfoCard label="Bon" value={transfer.request_number} />
+              <InfoCard label="Site source" value={transfer.from_site?.name} />
+              <InfoCard label="Site destination" value={transfer.to_site?.name} />
+              <InfoCard label="Notes" value={transfer.notes || "-"} />
             </div>
 
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-left">
-                <thead className="border-b border-slate-200">
-                  <tr className="text-slate-600">
-                    <th className="px-4 py-3">Produit</th>
-                    <th className="px-4 py-3">Demandé</th>
-                    <th className="px-4 py-3">Approuvé</th>
-                    <th className="px-4 py-3">Expédié</th>
-                    <th className="px-4 py-3">Reçu</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(document.lines ?? []).map((line) => (
-                    <tr key={line.id} className="border-b border-slate-100">
-                      <td className="px-4 py-3">{line.product?.name ?? "-"}</td>
-                      <td className="px-4 py-3">
-                        {formatQty(line.requested_quantity)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {line.approved_quantity != null
-                          ? formatQty(line.approved_quantity)
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {line.sent_quantity != null
-                          ? formatQty(line.sent_quantity)
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {line.received_quantity != null
-                          ? formatQty(line.received_quantity)
-                          : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <InfoCard label="Sécurité" value={formatDateTime(transfer.security_verified_at)} />
+              <InfoCard label="Chauffeur" value={formatDateTime(transfer.driver_picked_at)} />
+              <InfoCard label="Réception" value={formatDateTime(transfer.destination_received_at)} />
+              <InfoCard label="Rejet" value={formatDateTime(transfer.rejected_at)} />
             </div>
 
-            {document.reject_reason && (
-              <div className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
-                <div className="font-semibold">Motif de rejet</div>
-                <div>{document.reject_reason}</div>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl bg-white p-5 shadow space-y-4">
-            <h2 className="text-xl font-semibold text-slate-800">
-              Données de scan
-            </h2>
-
-            {(canSecurityCheck || canReject) && (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-3xl bg-white p-4 shadow-sm space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-700">
                     Dépôt source
                   </label>
                   <select
-                    className="w-full rounded-xl border p-3"
-                    value={form.from_warehouse_id}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        from_warehouse_id: e.target.value,
-                      }))
-                    }
+                    className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                    value={fromWarehouseId}
+                    onChange={(e) => setFromWarehouseId(e.target.value)}
                   >
-                    <option value="">Choisir dépôt source</option>
-                    {sourceWarehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}{" "}
-                        {warehouse.site_id ? `(Site ${warehouse.site_id})` : ""}
+                    <option value="">Choisir</option>
+                    {fromSiteWarehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
                       </option>
                     ))}
                   </select>
@@ -479,196 +392,153 @@ export default function TransferScanMobile() {
                     Dépôt destination
                   </label>
                   <select
-                    className="w-full rounded-xl border p-3"
-                    value={form.to_warehouse_id}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        to_warehouse_id: e.target.value,
-                      }))
-                    }
+                    className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                    value={toWarehouseId}
+                    onChange={(e) => setToWarehouseId(e.target.value)}
                   >
-                    <option value="">Choisir dépôt destination</option>
-                    {destinationWarehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}{" "}
-                        {warehouse.site_id ? `(Site ${warehouse.site_id})` : ""}
+                    <option value="">Choisir</option>
+                    {toSiteWarehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
-            )}
-
-            {canReject && (
-              <input
-                className="w-full rounded-xl border p-3"
-                placeholder="Motif de rejet"
-                value={form.reject_reason}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    reject_reason: e.target.value,
-                  }))
-                }
-              />
-            )}
-
-            <textarea
-              className="w-full rounded-xl border p-3"
-              placeholder="Notes / réserves"
-              value={form.notes}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, notes: e.target.value }))
-              }
-            />
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <input
-                className="rounded-xl border p-3"
-                placeholder="Latitude"
-                value={form.latitude}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, latitude: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-xl border p-3"
-                placeholder="Longitude"
-                value={form.longitude}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, longitude: e.target.value }))
-                }
-              />
-              <button
-                onClick={captureLocation}
-                className="rounded-xl bg-emerald-700 px-4 py-3 text-white"
-              >
-                Récupérer GPS
-              </button>
-            </div>
-
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setPhoto(e.target.files[0])}
-            />
-
-            <div className="flex flex-wrap gap-3">
-              {canSecurityCheck && (
-                <button
-                  onClick={() => {
-                    if (!form.from_warehouse_id || !form.to_warehouse_id) {
-                      toast.error(
-                        "Choisir le dépôt source et le dépôt destination"
-                      );
-                      return;
-                    }
-
-                    submitMultipart(`/transfer-scan/${scanToken}/security-check`, {
-                      from_warehouse_id: form.from_warehouse_id,
-                      to_warehouse_id: form.to_warehouse_id,
-                    });
-                  }}
-                  className="rounded-xl bg-slate-900 px-4 py-3 text-white"
-                >
-                  Valider sortie dépôt
-                </button>
-              )}
-
-              {canDriverPickup && (
-                <button
-                  onClick={() =>
-                    submitMultipart(`/transfer-scan/${scanToken}/driver-pickup`)
-                  }
-                  className="rounded-xl bg-blue-700 px-4 py-3 text-white"
-                >
-                  Confirmer prise en charge chauffeur
-                </button>
-              )}
-
-              {canReceive && (
-                <button
-                  onClick={() =>
-                    submitMultipart(
-                      `/transfer-scan/${scanToken}/destination-receive`
-                    )
-                  }
-                  className="rounded-xl bg-emerald-700 px-4 py-3 text-white"
-                >
-                  Confirmer réception finale
-                </button>
-              )}
 
               {canReject && (
-                <button
-                  onClick={() => {
-                    if (!form.reject_reason) {
-                      toast.error("Saisir un motif de rejet");
-                      return;
-                    }
-
-                    submitMultipart(`/transfer-scan/${scanToken}/reject`, {
-                      reject_reason: form.reject_reason,
-                    });
-                  }}
-                  className="rounded-xl bg-red-700 px-4 py-3 text-white"
-                >
-                  Rejeter le bon
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-slate-800">
-              Historique des scans
-            </h2>
-
-            <div className="space-y-3">
-              {history.length === 0 && (
-                <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
-                  Aucun scan enregistré pour le moment.
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Motif du rejet
+                  </label>
+                  <textarea
+                    className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                    rows={3}
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Indiquer pourquoi le bon est rejeté"
+                  />
                 </div>
               )}
+            </div>
 
-              {history.map((event) => (
-                <div
-                  key={event.id}
-                  className="rounded-xl border border-slate-200 p-4"
-                >
-                  <div className="font-semibold text-slate-800">
-                    {event.scan_stage} — {event.new_status}
-                  </div>
+            <div className="rounded-3xl bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">Lignes transfert</h2>
+                <Badge tone="slate">{(transfer.lines || []).length} ligne(s)</Badge>
+              </div>
 
-                  <div className="text-sm text-slate-500">
-                    {event.user?.name ?? event.user?.email ?? "Utilisateur"} —{" "}
-                    {formatDateTime(event.scanned_at)}
-                  </div>
-
-                  <div className="text-sm text-slate-500">
-                    GPS: {event.latitude ?? "-"}, {event.longitude ?? "-"}
-                  </div>
-
-                  {event.notes && (
-                    <div className="mt-2 text-sm text-slate-700">
-                      {event.notes}
+              <div className="space-y-3">
+                {(transfer.lines || []).map((line) => (
+                  <div
+                    key={line.id}
+                    className="rounded-2xl border border-slate-200 p-4"
+                  >
+                    <div className="font-semibold text-slate-800">
+                      {line.product?.name || "-"}
                     </div>
-                  )}
 
-                  {event.photo_url && (
-                    <img
-                      src={event.photo_url}
-                      alt="scan"
-                      className="mt-3 h-32 w-32 rounded-xl object-cover"
-                    />
-                  )}
-                </div>
-              ))}
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500 md:grid-cols-4">
+                      <div>Demandé : {formatQty(line.requested_quantity)}</div>
+                      <div>Validé : {formatQty(line.approved_quantity)}</div>
+                      <div>Envoyé : {formatQty(line.sent_quantity)}</div>
+                      <div>Reçu : {formatQty(line.received_quantity)}</div>
+                    </div>
+                  </div>
+                ))}
+
+                {(!transfer.lines || transfer.lines.length === 0) && (
+                  <div className="rounded-2xl bg-slate-50 p-4 text-slate-500">
+                    Aucune ligne de transfert.
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </>
-      )}
+
+            <div className="rounded-3xl bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">Historique scans</h2>
+                <Badge tone="slate">{(transfer.scan_events || []).length} événement(s)</Badge>
+              </div>
+
+              <div className="space-y-3">
+                {(transfer.scan_events || []).map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-2xl border border-slate-200 p-4"
+                  >
+                    <div className="font-semibold text-slate-800">
+                      {event.scan_stage || "-"}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      {formatDateTime(event.scanned_at)}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      {event.user?.name || event.user?.email || "-"}
+                    </div>
+                  </div>
+                ))}
+
+                {(!transfer.scan_events || transfer.scan_events.length === 0) && (
+                  <div className="rounded-2xl bg-slate-50 p-4 text-slate-500">
+                    Aucun historique de scan.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="sticky bottom-3 z-10">
+              <div className="rounded-3xl bg-white/95 p-3 shadow-lg backdrop-blur space-y-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <button
+                    onClick={securityCheck}
+                    disabled={!canSecurityCheck || actionLoading}
+                    className="rounded-2xl bg-blue-700 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {actionLoading && canSecurityCheck ? "Traitement..." : "Vérification sécurité"}
+                  </button>
+
+                  <button
+                    onClick={driverPickup}
+                    disabled={!canDriverPickup || actionLoading}
+                    className="rounded-2xl bg-slate-900 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {actionLoading && canDriverPickup ? "Traitement..." : "Prise en charge chauffeur"}
+                  </button>
+
+                  <button
+                    onClick={destinationReceive}
+                    disabled={!canDestinationReceive || actionLoading}
+                    className="rounded-2xl bg-emerald-700 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {actionLoading && canDestinationReceive ? "Traitement..." : "Réception destination"}
+                  </button>
+
+                  <button
+                    onClick={rejectTransfer}
+                    disabled={!canReject || actionLoading}
+                    className="rounded-2xl bg-red-700 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {actionLoading && canReject ? "Traitement..." : "Rejeter le bon"}
+                  </button>
+                </div>
+
+                {transfer.rejected_at && (
+                  <div className="rounded-2xl bg-red-50 p-3 text-sm text-red-700">
+                    Ce bon a été rejeté. Motif : {transfer.reject_reason || "-"}
+                  </div>
+                )}
+
+                {transfer.destination_received_at && (
+                  <div className="rounded-2xl bg-emerald-50 p-3 text-sm text-emerald-700">
+                    Ce bon a déjà été réceptionné à destination.
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
