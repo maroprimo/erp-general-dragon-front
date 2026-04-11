@@ -35,6 +35,11 @@ import ProductsCatalog from "./pages/ProductsCatalog";
 import Profile from "./pages/Profile";
 import TransferScanMobile from "./pages/TransferScanMobile";
 import TransferTrackingDashboard from "./pages/TransferTrackingDashboard";
+import Warehouses from "./pages/Warehouses";
+import StorageZones from "./pages/StorageZones";
+import Units from "./pages/Units";
+import PurchaseDocumentScanMobile from "./pages/PurchaseDocumentScanMobile";
+import KitchenConsumptionScanMobile from "./pages/KitchenConsumptionScanMobile";
 
 export default function App() {
   useEffect(() => {
@@ -102,6 +107,11 @@ export default function App() {
   if (page === "profile") content = <Profile />;
   if (page === "transferScanMobile") content = <TransferScanMobile />;
   if (page === "transferTrackingDashboard") content = <TransferTrackingDashboard />;
+  if (page === "warehouses") content = <Warehouses />;
+  if (page === "storageZones") content = <StorageZones />;
+  if (page === "units") content = <Units />;
+  if (page === "purchaseDocumentScanMobile") content = <PurchaseDocumentScanMobile />;
+  if (page === "kitchenConsumptionScanMobile") content = <KitchenConsumptionScanMobile />;
   
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>

@@ -5,15 +5,28 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
   const [stockAlertCount, setStockAlertCount] = useState(0);
   const [pendingTransferCount, setPendingTransferCount] = useState(0);
   const [siteName, setSiteName] = useState("Chargement...");
+  const [mainSite, setMainSite] = useState(null);
 
   useEffect(() => {
+
+    const loadMainSite = async () => {
+      try {
+        const res = await api.get("/sites");
+        const allSites = res.data?.data ?? res.data ?? [];
+        const defaultSite = allSites.find((s) => s.is_default) || allSites[0] || null;
+        setMainSite(defaultSite);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
     const loadHeaderData = async () => {
       try {
         const res = await api.get("/inter-site-requests/pending-count");
         setPendingTransferCount(res.data.count ?? 0);
 
         if (user?.site_id) {
-          const resSite = await api.get(`/sites-admin/${user.site_id}`);
+          const resSite = await api.get(`/sites/${user.site_id}`);
           setSiteName(resSite.data.name || "Site inconnu");
         } else {
           setSiteName("Tous les sites (Admin)");
@@ -35,6 +48,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
 
     loadHeaderData();
     loadStockAlerts();
+    loadMainSite();
   }, [user]);
 
   const navItems = [
@@ -67,6 +81,11 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     { key: "profile", label: "Profile", roles: ["pdg", "admin", "stock", "achat"] },
     { key: "transferScanMobile", label: "Scan Transfert", roles: ["pdg", "admin", "stock", "controle", "chauffeur", "securite"] },
     { key: "transferTrackingDashboard", label: "Suivi Transfert", roles: ["pdg", "admin", "stock", "controle", "logistique"] },
+    { key: "warehouses", label: "Dépôts", roles: ["pdg", "admin", "stock"] },
+    { key: "storageZones", label: "Zones stockage", roles: ["pdg", "admin", "stock"] },
+    { key: "units", label: "Unités", roles: ["pdg", "admin", "stock", "cuisine"] },
+    { key: "purchaseDocumentScanMobile", label: "Scan Docs Achats", roles: ["pdg", "admin", "stock", "securite", "achat"] },
+    { key: "kitchenConsumptionScanMobile", label: "Scan Cuisine", roles: ["pdg", "admin", "cuisine", "stock"] },
     
   ];
 
@@ -75,10 +94,28 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
   return (
     <div className="flex min-h-screen bg-slate-100">
       <aside className="w-72 bg-slate-900 text-white shadow-xl">
-        <div className="border-b border-slate-800 px-6 py-6">
-          <h1 className="text-2xl font-bold">General Dragon</h1>
-          <p className="mt-1 text-sm text-slate-300">ERP Restaurants</p>
+      <div className="border-b border-slate-800 px-6 py-6">
+        <div className="flex items-center gap-3">
+          {mainSite?.logo_url ? (
+            <img
+              src={`https://stock.dragonroyalmg.com${mainSite.logo_url}`}
+              alt={mainSite.name}
+              className="h-12 w-12 rounded-xl object-cover border border-slate-700 bg-white"
+            />
+          ) : (
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-700 text-sm text-white">
+              DR
+            </div>
+          )}
+
+          <div>
+            <h1 className="text-xl font-bold">{mainSite?.name || "General Dragon"}</h1>
+            <p className="mt-1 text-xs text-slate-300">
+              {mainSite?.type_site || "ERP Restaurants"}
+            </p>
+          </div>
         </div>
+      </div>
 
         <nav className="space-y-2 p-4">
           {filteredNav.map((item) => {
@@ -130,15 +167,15 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-3">
               {user?.avatar_url ? (
-<img 
-  src={`https://stock.dragonroyalmg.com/uploads/${user.avatar_path}`} 
-  alt="avatar"
-  className="h-10 w-10 rounded-full object-cover"
-  onError={(e) => {
-    console.log("Erreur de chargement sur l'URL :", e.target.src);
-    e.target.src = "https://ui-avatars.com/api/?name=" + user.name; // Image de secours si ça rate
-  }}
-/>
+          <img 
+            src={`https://stock.dragonroyalmg.com/uploads/${user.avatar_path}`} 
+            alt="avatar"
+            className="h-10 w-10 rounded-full object-cover"
+            onError={(e) => {
+              console.log("Erreur de chargement sur l'URL :", e.target.src);
+              e.target.src = "https://ui-avatars.com/api/?name=" + user.name; // Image de secours si ça rate
+            }}
+          />
               ) : (
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-slate-600">
                   ?

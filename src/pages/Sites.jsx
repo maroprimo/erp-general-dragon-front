@@ -2,342 +2,228 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 
-const siteTypes = [
-  "restaurant",
-  "depot",
-  "central",
-  "production",
-  "bureau",
-];
-
 export default function Sites() {
   const [sites, setSites] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
-  const [editingId, setEditingId] = useState(null);
+
+  const [logoFile, setLogoFile] = useState(null);
+  const [logoPreview, setLogoPreview] = useState("");
 
   const [form, setForm] = useState({
     code: "",
     name: "",
-    type_site: "restaurant",
+    type_site: "",
     address: "",
     city: "",
     country: "",
     phone: "",
     email: "",
+    nif: "",
+    stat: "",
+    rcs: "",
+    status_label: "",
     is_active: true,
-    default_warehouse_id: "",
-    is_default: false,
+    warehouse_ids: [],
   });
 
-  const [editForm, setEditForm] = useState({
-    code: "",
-    name: "",
-    type_site: "restaurant",
-    address: "",
-    city: "",
-    country: "",
-    phone: "",
-    email: "",
-    is_active: true,
-    default_warehouse_id: "",
-    is_default: false,
-  });
-
-  const loadSites = async () => {
+  const loadData = async () => {
     try {
-      const res = await api.get("/sites-admin");
-      setSites(res.data.data ?? res.data);
+      const [sitesRes, warehousesRes] = await Promise.all([
+        api.get("/sites"),
+        api.get("/warehouses"),
+      ]);
+
+      setSites(sitesRes.data ?? []);
+      setWarehouses(warehousesRes.data ?? []);
     } catch (err) {
       console.error(err);
       toast.error("Impossible de charger les sites");
     }
   };
 
-  const loadWarehouses = async () => {
-    try {
-      const res = await api.get("/references/warehouses");
-      setWarehouses(res.data ?? []);
-    } catch (err) {
-      console.error(err);
-      toast.error("Impossible de charger les dépôts");
-    }
-  };
-
   useEffect(() => {
-    loadSites();
-    loadWarehouses();
+    loadData();
   }, []);
 
-  const createSite = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+  if (!logoFile) {
+    setLogoPreview("");
+    return;
+  }
 
-    try {
-      const payload = {
-        ...form,
-        default_warehouse_id: form.default_warehouse_id ? Number(form.default_warehouse_id) : null,
-        is_active: Boolean(form.is_active),
-        is_default: Boolean(form.is_default),
+  const objectUrl = URL.createObjectURL(logoFile);
+  setLogoPreview(objectUrl);
+
+  return () => URL.revokeObjectURL(objectUrl);
+}, [logoFile]);
+
+
+  const toggleWarehouse = (id) => {
+    setForm((prev) => {
+      const exists = prev.warehouse_ids.includes(String(id));
+      return {
+        ...prev,
+        warehouse_ids: exists
+          ? prev.warehouse_ids.filter((x) => x !== String(id))
+          : [...prev.warehouse_ids, String(id)],
       };
-
-      const res = await api.post("/sites-admin", payload);
-      toast.success(res.data.message || "Site créé");
-
-      setForm({
-        code: "",
-        name: "",
-        type_site: "restaurant",
-        address: "",
-        city: "",
-        country: "",
-        phone: "",
-        email: "",
-        is_active: true,
-        default_warehouse_id: "",
-        is_default: false,
-      });
-
-      loadSites();
-    } catch (err) {
-      console.error(err);
-      toast.error("Erreur création site");
-    }
-  };
-
-  const startEdit = (site) => {
-    setEditingId(site.id);
-    setEditForm({
-      code: site.code ?? "",
-      name: site.name ?? "",
-      type_site: site.type_site ?? "restaurant",
-      address: site.address ?? "",
-      city: site.city ?? "",
-      country: site.country ?? "",
-      phone: site.phone ?? "",
-      email: site.email ?? "",
-      is_active: !!site.is_active,
-      default_warehouse_id: site.default_warehouse_id ?? "",
-      is_default: !!site.is_default,
     });
   };
 
-  const saveEdit = async (id) => {
-    try {
-      const payload = {
-        ...editForm,
-        default_warehouse_id: editForm.default_warehouse_id ? Number(editForm.default_warehouse_id) : null,
-        is_active: Boolean(editForm.is_active),
-        is_default: Boolean(editForm.is_default),
-      };
+const submit = async (e) => {
+  e.preventDefault();
 
-      const res = await api.put(`/sites-admin/${id}`, payload);
-      toast.success(res.data.message || "Site mis à jour");
-      setEditingId(null);
-      loadSites();
-    } catch (err) {
-      console.error(err);
-      toast.error("Erreur mise à jour site");
-    }
-  };
+  try {
+    const formData = new FormData();
 
-  const toggleSite = async (id) => {
-    try {
-      const res = await api.patch(`/sites-admin/${id}/toggle`);
-      toast.success(res.data.message || "Statut modifié");
-      loadSites();
-    } catch (err) {
-      console.error(err);
-      toast.error("Erreur changement statut");
-    }
-  };
+    formData.append("code", form.code || "");
+    formData.append("name", form.name || "");
+    formData.append("type_site", form.type_site || "");
+    formData.append("address", form.address || "");
+    formData.append("city", form.city || "");
+    formData.append("country", form.country || "");
+    formData.append("phone", form.phone || "");
+    formData.append("email", form.email || "");
+    formData.append("nif", form.nif || "");
+    formData.append("stat", form.stat || "");
+    formData.append("rcs", form.rcs || "");
+    formData.append("status_label", form.status_label || "");
+    formData.append("is_active", form.is_active ? "1" : "0");
 
-  const setDefaultSite = async (id) => {
-    try {
-      const res = await api.patch(`/sites-admin/${id}/set-default`);
-      toast.success(res.data.message || "Site par défaut défini");
-      loadSites();
-    } catch (err) {
-      console.error(err);
-      toast.error("Erreur définition site par défaut");
+    form.warehouse_ids.forEach((id) => {
+      formData.append("warehouse_ids[]", id);
+    });
+
+    if (logoFile) {
+      formData.append("logo", logoFile);
     }
-  };
+
+    const res = await api.post("/sites", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    toast.success(res.data.message || "Site créé");
+
+    setForm({
+      code: "",
+      name: "",
+      type_site: "",
+      address: "",
+      city: "",
+      country: "",
+      phone: "",
+      email: "",
+      nif: "",
+      stat: "",
+      rcs: "",
+      status_label: "",
+      is_active: true,
+      warehouse_ids: [],
+    });
+
+    setLogoFile(null);
+    setLogoPreview("");
+    loadData();
+  } catch (err) {
+    console.error(err);
+    toast.error(err?.response?.data?.message || "Erreur création site");
+  }
+};
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Sites</h1>
-        <p className="text-slate-500">
-          Gestion des restaurants, dépôts, sites de production et site par défaut.
-        </p>
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+      <div className="xl:col-span-5">
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <h1 className="mb-4 text-3xl font-bold text-slate-800">Ajouter un site</h1>
+
+          <form onSubmit={submit} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <input className="rounded-xl border p-3" placeholder="Code" value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="Nom du site" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="Type de site" value={form.type_site} onChange={(e) => setForm((p) => ({ ...p, type_site: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="Ville" value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="Téléphone" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="Email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="NIF" value={form.nif} onChange={(e) => setForm((p) => ({ ...p, nif: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="STAT" value={form.stat} onChange={(e) => setForm((p) => ({ ...p, stat: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="RCS" value={form.rcs} onChange={(e) => setForm((p) => ({ ...p, rcs: e.target.value }))} />
+              <input className="rounded-xl border p-3" placeholder="Statut" value={form.status_label} onChange={(e) => setForm((p) => ({ ...p, status_label: e.target.value }))} />
+            </div>
+
+            <textarea
+              className="w-full rounded-xl border p-3"
+              placeholder="Adresse"
+              value={form.address}
+              onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+            />
+
+            <div className="rounded-xl border p-4">
+              <div className="mb-3 text-lg font-semibold text-slate-800">Dépôts liés au site</div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {warehouses.map((warehouse) => (
+                  <label key={warehouse.id} className="flex items-center gap-2 rounded-lg border p-3">
+                    <input
+                      type="checkbox"
+                      checked={form.warehouse_ids.includes(String(warehouse.id))}
+                      onChange={() => toggleWarehouse(warehouse.id)}
+                    />
+                    {warehouse.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl border p-4">
+            <div className="mb-3 text-lg font-semibold text-slate-800">Logo du site</div>
+
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
+            />
+
+            {logoPreview && (
+              <img
+                src={logoPreview}
+                alt="Prévisualisation logo"
+                className="mt-4 h-24 w-24 rounded-xl border object-cover"
+              />
+            )}
+          </div>
+
+            <button className="rounded-xl bg-slate-900 px-4 py-3 text-white">
+              Enregistrer le site
+            </button>
+          </form>
+        </div>
       </div>
 
-      <div className="rounded-2xl bg-white p-6 shadow">
-        <h2 className="mb-4 text-2xl font-bold text-slate-800">Nouveau site</h2>
+      <div className="xl:col-span-7">
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <h2 className="mb-4 text-2xl font-bold text-slate-800">Sites enregistrés</h2>
 
-        <form onSubmit={createSite} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <input className="rounded-xl border p-3" placeholder="Code" value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} />
-          <input className="rounded-xl border p-3" placeholder="Nom du site" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
-
-          <select className="rounded-xl border p-3" value={form.type_site} onChange={(e) => setForm((p) => ({ ...p, type_site: e.target.value }))}>
-            {siteTypes.map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
+          <div className="space-y-3">
+            {sites.map((site) => (
+              <div key={site.id} className="rounded-xl border p-4">
+                {site.logo_url && (
+                  <img
+                    src={`https://stock.dragonroyalmg.com${site.logo_url}`}
+                    alt={site.name}
+                    className="mt-3 h-14 w-14 rounded-xl border object-cover"
+                  />
+                )}
+                <div className="font-semibold text-slate-800">{site.name}</div>
+                <div className="text-sm text-slate-500">
+                  {site.code} — {site.phone || "-"} — {site.email || "-"}
+                </div>
+                <div className="mt-1 text-sm text-slate-500">
+                  NIF: {site.nif || "-"} | STAT: {site.stat || "-"} | RCS: {site.rcs || "-"}
+                </div>
+                <div className="mt-1 text-sm text-slate-500">
+                  Dépôts: {(site.warehouses ?? []).length}
+                </div>
+              </div>
             ))}
-          </select>
-
-          <input className="rounded-xl border p-3" placeholder="Adresse" value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} />
-          <input className="rounded-xl border p-3" placeholder="Ville" value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} />
-          <input className="rounded-xl border p-3" placeholder="Pays" value={form.country} onChange={(e) => setForm((p) => ({ ...p, country: e.target.value }))} />
-
-          <input className="rounded-xl border p-3" placeholder="Téléphone" value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} />
-          <input className="rounded-xl border p-3" placeholder="Email" value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} />
-
-          <select
-            className="rounded-xl border p-3"
-            value={form.default_warehouse_id}
-            onChange={(e) => setForm((p) => ({ ...p, default_warehouse_id: e.target.value }))}
-          >
-            <option value="">Aucun dépôt principal</option>
-            {warehouses.map((warehouse) => (
-              <option key={warehouse.id} value={warehouse.id}>
-                {warehouse.name}
-              </option>
-            ))}
-          </select>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))}
-            />
-            Site actif
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.is_default}
-              onChange={(e) => setForm((p) => ({ ...p, is_default: e.target.checked }))}
-            />
-            Site par défaut
-          </label>
-
-          <button className="rounded-xl bg-slate-900 px-4 py-3 text-white xl:col-span-3">
-            Enregistrer le site
-          </button>
-        </form>
-      </div>
-
-      <div className="rounded-2xl bg-white p-6 shadow">
-        <h2 className="mb-4 text-2xl font-bold text-slate-800">Liste des sites</h2>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
-            <thead className="border-b border-slate-200">
-              <tr className="text-slate-600">
-                <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Nom</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Ville</th>
-                <th className="px-4 py-3">Dépôt principal</th>
-                <th className="px-4 py-3">Actif</th>
-                <th className="px-4 py-3">Défaut</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sites.map((site) => (
-                <tr key={site.id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    {editingId === site.id ? (
-                      <input className="rounded border p-2" value={editForm.code} onChange={(e) => setEditForm((p) => ({ ...p, code: e.target.value }))} />
-                    ) : site.code}
-                  </td>
-                  <td className="px-4 py-3">
-                    {editingId === site.id ? (
-                      <input className="rounded border p-2" value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} />
-                    ) : site.name}
-                  </td>
-                  <td className="px-4 py-3">
-                    {editingId === site.id ? (
-                      <select className="rounded border p-2" value={editForm.type_site} onChange={(e) => setEditForm((p) => ({ ...p, type_site: e.target.value }))}>
-                        {siteTypes.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    ) : site.type_site}
-                  </td>
-                  <td className="px-4 py-3">
-                    {editingId === site.id ? (
-                      <input className="rounded border p-2" value={editForm.city} onChange={(e) => setEditForm((p) => ({ ...p, city: e.target.value }))} />
-                    ) : site.city}
-                  </td>
-                  <td className="px-4 py-3">
-                    {editingId === site.id ? (
-                      <select
-                        className="rounded border p-2"
-                        value={editForm.default_warehouse_id}
-                        onChange={(e) => setEditForm((p) => ({ ...p, default_warehouse_id: e.target.value }))}
-                      >
-                        <option value="">Aucun</option>
-                        {warehouses.map((warehouse) => (
-                          <option key={warehouse.id} value={warehouse.id}>
-                            {warehouse.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      site.default_warehouse?.name ?? "-"
-                    )}
-                  </td>
-                  <td className="px-4 py-3">{site.is_active ? "Oui" : "Non"}</td>
-                  <td className="px-4 py-3">{site.is_default ? "Oui" : "Non"}</td>
-                  <td className="px-4 py-3 space-x-2">
-                    {editingId === site.id ? (
-                      <>
-                        <button
-                          onClick={() => saveEdit(site.id)}
-                          className="rounded-xl bg-emerald-600 px-3 py-2 text-white"
-                        >
-                          Enregistrer
-                        </button>
-                        <button
-                          onClick={() => setEditingId(null)}
-                          className="rounded-xl bg-slate-500 px-3 py-2 text-white"
-                        >
-                          Annuler
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => startEdit(site)}
-                          className="rounded-xl bg-blue-600 px-3 py-2 text-white"
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          onClick={() => toggleSite(site.id)}
-                          className="rounded-xl bg-amber-600 px-3 py-2 text-white"
-                        >
-                          Activer / Désactiver
-                        </button>
-                        <button
-                          onClick={() => setDefaultSite(site.id)}
-                          className="rounded-xl bg-slate-900 px-3 py-2 text-white"
-                        >
-                          Définir défaut
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          </div>
         </div>
       </div>
     </div>

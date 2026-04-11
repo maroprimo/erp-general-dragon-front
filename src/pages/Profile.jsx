@@ -4,10 +4,10 @@ import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 
 export default function Profile() {
-const { user, setUser, refreshUser } = useAuth();
+  const { user, setUser } = useAuth();
   const [file, setFile] = useState(null);
 
-const submitAvatar = async (e) => {
+  const submitAvatar = async (e) => {
     e.preventDefault();
     if (!file) return;
 
@@ -15,25 +15,23 @@ const submitAvatar = async (e) => {
     formData.append("avatar", file);
 
     try {
-        const res = await api.post("/me/avatar", formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-        });
+      const res = await api.post("/me/avatar", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-        // 1. On vérifie si on a bien reçu le user
-        if (res.data && res.data.user) {
-            // 2. On met à jour le state global (AuthContext)
-            setUser(res.data.user); 
-            toast.success("Avatar mis à jour !");
-        }
-
+      if (res.data && res.data.user) {
+        setUser(res.data.user);
+        toast.success("Avatar mis à jour !");
+      }
     } catch (err) {
-        console.error("Erreur upload:", err);
-        // On affiche l'erreur seulement si la requête a échoué (400, 500, etc.)
-        toast.error(err.response?.data?.message || "Erreur lors de la mise à jour");
+      console.error("Erreur upload:", err);
+      toast.error(err.response?.data?.message || "Erreur lors de la mise à jour");
     }
-};
+  };
 
-
+  const avatarSrc = user?.avatar_url
+    ? `https://stock.dragonroyalmg.com${user.avatar_url}`
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || "User")}`;
 
   return (
     <div className="space-y-6">
@@ -43,8 +41,7 @@ const submitAvatar = async (e) => {
       </div>
 
       <div className="rounded-2xl bg-white p-6 shadow">
-        <div className="mb-4 flex items-center gap-4">
-          {user?.avatar_url ? (
+        <div className="mb-6 flex items-center gap-4">
 <img 
   // On utilise l'URL absolue + le chemin de la BDD
   src={`https://stock.dragonroyalmg.com/uploads/${user?.avatar_path}`} 
@@ -60,15 +57,39 @@ const submitAvatar = async (e) => {
     }
   }}
 />
-          ) : (
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-slate-200 text-slate-600">
-              ?
-            </div>
-          )}
 
           <div>
-            <div className="text-xl font-semibold text-slate-800">{user?.name}</div>
-            <div className="text-sm text-slate-500">{user?.email}</div>
+            <div className="text-xl font-semibold text-slate-800">
+              {user?.name || "-"}
+            </div>
+            <div className="text-sm text-slate-500">{user?.email || "-"}</div>
+          </div>
+        </div>
+
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-sm text-slate-500">Nom</div>
+            <div className="font-semibold text-slate-800">{user?.last_name || "-"}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-sm text-slate-500">Prénom</div>
+            <div className="font-semibold text-slate-800">{user?.first_name || "-"}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-sm text-slate-500">Rôle</div>
+            <div className="font-semibold text-slate-800">{user?.role || "-"}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-sm text-slate-500">Téléphone</div>
+            <div className="font-semibold text-slate-800">{user?.phone || "-"}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-4 md:col-span-2">
+            <div className="text-sm text-slate-500">Email</div>
+            <div className="font-semibold text-slate-800">{user?.email || "-"}</div>
           </div>
         </div>
 
