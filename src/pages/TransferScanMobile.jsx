@@ -307,15 +307,15 @@ export default function TransferScanMobile() {
   const isDestinationSite =
     Number(user?.site_id) === Number(document?.to_site_id);
 
-  const canSecurityCheck =
-    document?.status === "approved" &&
-    document?.transport_status === "waiting" &&
-    (isSourceSite || isAdmin);
+const canSecurityCheck =
+  ["pending", "approved"].includes(document?.status) &&
+  document?.transport_status === "waiting" &&
+  (isSecurity || isSourceSite || isAdmin);
 
-  const canReject =
-    ["pending", "approved"].includes(document?.status) &&
-    document?.transport_status === "waiting" &&
-    (isSourceSite || isAdmin);
+const canReject =
+  ["pending", "approved"].includes(document?.status) &&
+  document?.transport_status === "waiting" &&
+  (isSecurity || isSourceSite || isAdmin);
 
   const canDriverPickup =
     document?.status === "in_transit" &&
