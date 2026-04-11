@@ -363,7 +363,7 @@ export default function InterSiteRequest() {
   const transferPrintUrl = useMemo(() => {
     if (selectedRequest?.print_url) return selectedRequest.print_url;
     if (!selectedRequest?.id) return "";
-    return `${backendWebWithIndex}/print/inter-site-request/${selectedRequest.id}`;
+    return `${backendWebWithIndex}/print/inter-site-transfer/${selectedRequest.id}`;
   }, [selectedRequest, backendWebWithIndex]);
 
   const printSelectedRequest = () => {
