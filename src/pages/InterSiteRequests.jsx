@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
+import useReferences from "../hooks/useReferences";
 import { formatDateTime, formatQty } from "../utils/formatters";
 
 function extractCollection(payload) {
@@ -17,7 +18,7 @@ function extractItem(payload) {
 }
 
 function businessBadgeClass(status) {
-  switch (String(status || "").toLowerCase()) {
+  switch (String(status || "").trim().toLowerCase()) {
     case "pending":
       return "bg-slate-100 text-slate-700";
     case "approved":
@@ -34,7 +35,7 @@ function businessBadgeClass(status) {
 }
 
 function transportBadgeClass(status) {
-  switch (String(status || "").toLowerCase()) {
+  switch (String(status || "").trim().toLowerCase()) {
     case "waiting":
       return "bg-slate-100 text-slate-700";
     case "security_verified":
@@ -63,6 +64,13 @@ function StatCard({ label, value, children }) {
 
 export default function InterSiteRequest() {
   const { user } = useAuth();
+
+  const {
+    sites: hookSites = [],
+    warehouses: hookWarehouses = [],
+    products: hookProducts = [],
+    loading: hookRefsLoading,
+  } = useReferences() || {};
 
   const [sites, setSites] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -117,82 +125,72 @@ export default function InterSiteRequest() {
     "stock",
   ].includes(role);
 
-  const sourceWarehouses = useMemo(() => {
-    if (!form.from_site_id) return [];
-    return warehouses.filter(
-      (warehouse) => Number(warehouse.site_id) === Number(form.from_site_id)
-    );
-  }, [warehouses, form.from_site_id]);
-
-  const destinationWarehouses = useMemo(() => {
-    if (!form.to_site_id) return [];
-    return warehouses.filter(
-      (warehouse) => Number(warehouse.site_id) === Number(form.to_site_id)
-    );
-  }, [warehouses, form.to_site_id]);
-
-  const filteredRequests = useMemo(() => {
-    return requests.filter((item) => {
-      const haystack = [
-        item.request_number,
-        item.notes,
-        item.from_site?.name,
-        item.fromSite?.name,
-        item.to_site?.name,
-        item.toSite?.name,
-        item.status,
-        item.transport_status,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchSearch = filters.search
-        ? haystack.includes(filters.search.toLowerCase())
-        : true;
-
-      const matchStatus = filters.status
-        ? String(item.status || "").toLowerCase() ===
-          String(filters.status || "").toLowerCase()
-        : true;
-
-      return matchSearch && matchStatus;
-    });
-  }, [requests, filters]);
-
-  const selectedFromSiteId = Number(
-    selectedRequest?.from_site_id ?? selectedRequest?.from_site?.id ?? selectedRequest?.fromSite?.id ?? 0
-  );
-
-  const userSiteId = Number(user?.site_id ?? 0);
-
   const isDriverRole = ["driver", "chauffeur", "livreur", "courier"].includes(role);
 
-  const canApproveRequest =
-    !!selectedRequest &&
-    String(selectedRequest.status || "").toLowerCase() === "pending" &&
-    !isDriverRole &&
-    (
-      isGlobalApprover ||
-      (isSourceManagerRole && userSiteId === selectedFromSiteId)
-    );
-
-  const loadReferences = async () => {
+  const loadReferenceFallbacks = async () => {
     try {
-      setRefsLoading(true);
+      let finalSites = Array.isArray(hookSites) ? hookSites : [];
+      let finalWarehouses = Array.isArray(hookWarehouses) ? hookWarehouses : [];
+      let finalProducts = Array.isArray(hookProducts) ? hookProducts : [];
 
-      const [sitesRes, warehousesRes, productsRes] = await Promise.all([
-        api.get("/sites"),
-        api.get("/warehouses"),
-        api.get("/products"),
-      ]);
+      if (finalSites.length === 0) {
+        const siteCandidates = ["/references/sites", "/sites"];
+        for (const url of siteCandidates) {
+          try {
+            const res = await api.get(url);
+            const rows = extractCollection(res.data);
+            if (rows.length > 0) {
+              finalSites = rows;
+              break;
+            }
+          } catch (_) {
+            // on essaie le suivant
+          }
+        }
+      }
 
-      setSites(extractCollection(sitesRes.data));
-      setWarehouses(extractCollection(warehousesRes.data));
-      setProducts(extractCollection(productsRes.data));
+      if (finalWarehouses.length === 0) {
+        const warehouseCandidates = ["/references/warehouses", "/warehouses"];
+        for (const url of warehouseCandidates) {
+          try {
+            const res = await api.get(url);
+            const rows = extractCollection(res.data);
+            if (rows.length > 0) {
+              finalWarehouses = rows;
+              break;
+            }
+          } catch (_) {
+            // on essaie le suivant
+          }
+        }
+      }
+
+      if (finalProducts.length === 0) {
+        const productCandidates = ["/products", "/references/products-by-category"];
+        for (const url of productCandidates) {
+          try {
+            const res = await api.get(url);
+            const rows = extractCollection(res.data);
+            if (rows.length > 0) {
+              finalProducts = rows;
+              break;
+            }
+          } catch (_) {
+            // on essaie le suivant
+          }
+        }
+      }
+
+      setSites(finalSites);
+      setWarehouses(finalWarehouses);
+      setProducts(finalProducts);
+
+      if (finalSites.length === 0 || finalWarehouses.length === 0 || finalProducts.length === 0) {
+        toast.error("Certaines références sont incomplètes. Vérifie les endpoints.");
+      }
     } catch (err) {
       console.error(err);
-      toast.error("Impossible de charger les références");
+      toast.error("Impossible de charger les références.");
     } finally {
       setRefsLoading(false);
     }
@@ -232,9 +230,15 @@ export default function InterSiteRequest() {
   };
 
   useEffect(() => {
-    loadReferences();
     loadRequests();
   }, []);
+
+  useEffect(() => {
+    if (!hookRefsLoading) {
+      loadReferenceFallbacks();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hookRefsLoading]);
 
   useEffect(() => {
     if (refsLoading) return;
@@ -250,14 +254,28 @@ export default function InterSiteRequest() {
     });
   }, [refsLoading, user?.site_id]);
 
+  const sourceWarehouses = useMemo(() => {
+    if (!form.from_site_id) return [];
+    return warehouses.filter(
+      (warehouse) => Number(warehouse.site_id) === Number(form.from_site_id)
+    );
+  }, [warehouses, form.from_site_id]);
+
+  const destinationWarehouses = useMemo(() => {
+    if (!form.to_site_id) return [];
+    return warehouses.filter(
+      (warehouse) => Number(warehouse.site_id) === Number(form.to_site_id)
+    );
+  }, [warehouses, form.to_site_id]);
+
   useEffect(() => {
     if (!form.from_site_id) return;
 
-    const stillValid = sourceWarehouses.some(
+    const valid = sourceWarehouses.some(
       (w) => Number(w.id) === Number(form.from_warehouse_id)
     );
 
-    if (!stillValid) {
+    if (!valid) {
       setForm((prev) => ({
         ...prev,
         from_warehouse_id: sourceWarehouses[0]?.id
@@ -270,11 +288,11 @@ export default function InterSiteRequest() {
   useEffect(() => {
     if (!form.to_site_id) return;
 
-    const stillValid = destinationWarehouses.some(
+    const valid = destinationWarehouses.some(
       (w) => Number(w.id) === Number(form.to_warehouse_id)
     );
 
-    if (!stillValid) {
+    if (!valid) {
       setForm((prev) => ({
         ...prev,
         to_warehouse_id: destinationWarehouses[0]?.id
@@ -283,6 +301,50 @@ export default function InterSiteRequest() {
       }));
     }
   }, [form.to_site_id, destinationWarehouses]);
+
+  const filteredRequests = useMemo(() => {
+    return requests.filter((item) => {
+      const haystack = [
+        item.request_number,
+        item.notes,
+        item.from_site?.name,
+        item.fromSite?.name,
+        item.to_site?.name,
+        item.toSite?.name,
+        item.status,
+        item.transport_status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      const matchSearch = filters.search
+        ? haystack.includes(filters.search.toLowerCase())
+        : true;
+
+      const matchStatus = filters.status
+        ? String(item.status || "").toLowerCase() ===
+          String(filters.status || "").toLowerCase()
+        : true;
+
+      return matchSearch && matchStatus;
+    });
+  }, [requests, filters]);
+
+  const selectedFromSiteId = Number(
+    selectedRequest?.from_site_id ??
+      selectedRequest?.from_site?.id ??
+      selectedRequest?.fromSite?.id ??
+      0
+  );
+
+  const userSiteId = Number(user?.site_id ?? 0);
+
+  const canApproveRequest =
+    !!selectedRequest &&
+    String(selectedRequest.status || "").toLowerCase() === "pending" &&
+    !isDriverRole &&
+    (isGlobalApprover || (isSourceManagerRole && userSiteId === selectedFromSiteId));
 
   const updateLine = (index, field, value) => {
     setForm((prev) => {
@@ -445,7 +507,6 @@ export default function InterSiteRequest() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        {/* Bloc gauche : création */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Créer BT</h2>
@@ -628,7 +689,6 @@ export default function InterSiteRequest() {
           </div>
         </div>
 
-        {/* Bloc centre : liste */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>
@@ -720,7 +780,6 @@ export default function InterSiteRequest() {
           </div>
         </div>
 
-        {/* Bloc droite : détail */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Détails BT</h2>
@@ -769,16 +828,11 @@ export default function InterSiteRequest() {
                 <StatCard label="Numéro" value={selectedRequest.request_number} />
                 <StatCard
                   label="Demandé le"
-                  value={formatDateTime(
-                    selectedRequest.requested_at || selectedRequest.created_at
-                  )}
+                  value={formatDateTime(selectedRequest.requested_at || selectedRequest.created_at)}
                 />
                 <StatCard
                   label="Site expéditeur"
-                  value={
-                    selectedRequest.from_site?.name ||
-                    selectedRequest.fromSite?.name
-                  }
+                  value={selectedRequest.from_site?.name || selectedRequest.fromSite?.name}
                 />
                 <StatCard
                   label="Site destinataire"
@@ -786,17 +840,11 @@ export default function InterSiteRequest() {
                 />
                 <StatCard
                   label="Dépôt expéditeur"
-                  value={
-                    selectedRequest.from_warehouse?.name ||
-                    selectedRequest.fromWarehouse?.name
-                  }
+                  value={selectedRequest.from_warehouse?.name || selectedRequest.fromWarehouse?.name}
                 />
                 <StatCard
                   label="Dépôt destinataire"
-                  value={
-                    selectedRequest.to_warehouse?.name ||
-                    selectedRequest.toWarehouse?.name
-                  }
+                  value={selectedRequest.to_warehouse?.name || selectedRequest.toWarehouse?.name}
                 />
               </div>
 
@@ -880,9 +928,7 @@ export default function InterSiteRequest() {
                       </div>
 
                       {line.notes && (
-                        <div className="mt-2 text-sm text-slate-600">
-                          {line.notes}
-                        </div>
+                        <div className="mt-2 text-sm text-slate-600">{line.notes}</div>
                       )}
                     </div>
                   ))}
