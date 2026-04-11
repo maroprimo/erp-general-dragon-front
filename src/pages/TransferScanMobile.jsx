@@ -18,7 +18,7 @@ function extractToken(value) {
       return parts[scanIndex + 1];
     }
   } catch (_) {
-    // ce n'est pas une URL complète
+    // Si ce n'est pas une URL complète, on continue
   }
 
   return value.replace(/^.*scan-transfer\//, "").trim();
@@ -302,47 +302,71 @@ export default function TransferScanMobile() {
     }
   };
 
-const role = String(user?.role || "").toLowerCase();
+  const role = String(user?.role || "").toLowerCase();
 
-const isAdmin = ["pdg", "admin"].includes(role);
-const isSecurity = ["security", "securite", "sécurité", "controleur", "contrôleur"].includes(role);
-const isDriver = ["driver", "chauffeur", "livreur"].includes(role);
-const isReceiver = ["stock", "reception", "réception", "magasinier", "admin", "pdg"].includes(role);
+  const isAdmin = ["pdg", "admin"].includes(role);
+  const isSecurity = [
+    "security",
+    "securite",
+    "sécurité",
+    "controleur",
+    "contrôleur",
+  ].includes(role);
+  const isDriver = ["driver", "chauffeur", "livreur"].includes(role);
+  const isReceiver = [
+    "stock",
+    "reception",
+    "réception",
+    "magasinier",
+    "admin",
+    "pdg",
+  ].includes(role);
 
-const isSourceSite =
-  Number(user?.site_id) === Number(document?.from_site_id);
-const isDestinationSite =
-  Number(user?.site_id) === Number(document?.to_site_id);
+  const isSourceSite =
+    Number(user?.site_id) === Number(document?.from_site_id);
+  const isDestinationSite =
+    Number(user?.site_id) === Number(document?.to_site_id);
 
-const canSecurityCheck =
-  ["pending", "approved"].includes(document?.status) &&
-  document?.transport_status === "waiting" &&
-  (isSecurity || isSourceSite || isAdmin);
+  const canSecurityCheck =
+    document?.status === "approved" &&
+    document?.transport_status === "waiting" &&
+    (isSecurity || isSourceSite || isAdmin);
 
-const canReject =
-  ["pending", "approved"].includes(document?.status) &&
-  document?.transport_status === "waiting" &&
-  (isSecurity || isSourceSite || isAdmin);
+  const canReject =
+    ["pending", "approved"].includes(document?.status) &&
+    document?.transport_status === "waiting" &&
+    (isSecurity || isSourceSite || isAdmin);
 
-const canDriverPickup =
-  document?.status === "in_transit" &&
-  document?.transport_status === "security_verified" &&
-  (isDriver || isAdmin);
+  const canDriverPickup =
+    document?.status === "in_transit" &&
+    document?.transport_status === "security_verified" &&
+    (isDriver || isAdmin);
 
-const canReceive =
-  document?.status === "in_transit" &&
-  ["security_verified", "picked_up"].includes(document?.transport_status) &&
-  (isReceiver || isDestinationSite || isAdmin);
+  const canReceive =
+    document?.status === "in_transit" &&
+    ["security_verified", "picked_up"].includes(document?.transport_status) &&
+    (isReceiver || isDestinationSite || isAdmin);
 
   const nextStepLabel = useMemo(() => {
     if (!document) return "-";
-    if (document.transport_status === "waiting") return "Vérification sécurité";
-    if (document.transport_status === "security_verified")
+    if (document.status === "pending" && document.transport_status === "waiting") {
+      return "Approbation du BT requise";
+    }
+    if (document.status === "approved" && document.transport_status === "waiting") {
+      return "Vérification sécurité";
+    }
+    if (document.transport_status === "security_verified") {
       return "Prise en charge chauffeur";
-    if (document.transport_status === "picked_up")
+    }
+    if (document.transport_status === "picked_up") {
       return "Réception destination";
-    if (document.transport_status === "received") return "Transfert terminé";
-    if (document.transport_status === "rejected") return "Bon rejeté";
+    }
+    if (document.transport_status === "received") {
+      return "Transfert terminé";
+    }
+    if (document.transport_status === "rejected") {
+      return "Bon rejeté";
+    }
     return "-";
   }, [document]);
 
@@ -437,6 +461,13 @@ const canReceive =
               />
               <StatCard label="Notes" value={document.notes || "-"} />
             </div>
+
+            {document.status === "pending" &&
+              document.transport_status === "waiting" && (
+                <div className="rounded-3xl bg-amber-50 p-4 text-sm text-amber-700">
+                  Ce bon doit d’abord être approuvé avant la sortie dépôt.
+                </div>
+              )}
 
             <div className="rounded-3xl bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
