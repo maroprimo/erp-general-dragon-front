@@ -302,10 +302,17 @@ export default function TransferScanMobile() {
     }
   };
 
-  const isAdmin = ["pdg", "admin"].includes(user?.role);
-  const isSourceSite = Number(user?.site_id) === Number(document?.from_site_id);
-  const isDestinationSite =
-    Number(user?.site_id) === Number(document?.to_site_id);
+const role = String(user?.role || "").toLowerCase();
+
+const isAdmin = ["pdg", "admin"].includes(role);
+const isSecurity = ["security", "securite", "sécurité", "controleur", "contrôleur"].includes(role);
+const isDriver = ["driver", "chauffeur", "livreur"].includes(role);
+const isReceiver = ["stock", "reception", "réception", "magasinier", "admin", "pdg"].includes(role);
+
+const isSourceSite =
+  Number(user?.site_id) === Number(document?.from_site_id);
+const isDestinationSite =
+  Number(user?.site_id) === Number(document?.to_site_id);
 
 const canSecurityCheck =
   ["pending", "approved"].includes(document?.status) &&
@@ -317,14 +324,15 @@ const canReject =
   document?.transport_status === "waiting" &&
   (isSecurity || isSourceSite || isAdmin);
 
-  const canDriverPickup =
-    document?.status === "in_transit" &&
-    document?.transport_status === "security_verified";
+const canDriverPickup =
+  document?.status === "in_transit" &&
+  document?.transport_status === "security_verified" &&
+  (isDriver || isAdmin);
 
-  const canReceive =
-    document?.status === "in_transit" &&
-    ["security_verified", "picked_up"].includes(document?.transport_status) &&
-    (isDestinationSite || isAdmin);
+const canReceive =
+  document?.status === "in_transit" &&
+  ["security_verified", "picked_up"].includes(document?.transport_status) &&
+  (isReceiver || isDestinationSite || isAdmin);
 
   const nextStepLabel = useMemo(() => {
     if (!document) return "-";
