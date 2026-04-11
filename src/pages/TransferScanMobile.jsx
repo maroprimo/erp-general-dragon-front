@@ -28,6 +28,8 @@ function normalizeDocument(payload) {
   return payload?.data || payload;
 }
 
+
+
 const transportBadgeClass = (status) => {
   switch (status) {
     case "waiting":
