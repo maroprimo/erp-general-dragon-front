@@ -18,10 +18,14 @@ function extractToken(value) {
       return parts[scanIndex + 1];
     }
   } catch (_) {
-    // Si ce n'est pas une URL complète, on continue
+    // ce n'est pas une URL complète
   }
 
   return value.replace(/^.*scan-transfer\//, "").trim();
+}
+
+function normalizeDocument(payload) {
+  return payload?.data || payload;
 }
 
 const transportBadgeClass = (status) => {
@@ -58,6 +62,19 @@ const businessBadgeClass = (status) => {
   }
 };
 
+function StatCard({ label, value, children }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
+      <div className="mt-1 text-sm font-semibold text-slate-800 break-words">
+        {children || value || "-"}
+      </div>
+    </div>
+  );
+}
+
 export default function TransferScanMobile() {
   const { user } = useAuth();
   const { warehouses, loading: refsLoading } = useReferences();
@@ -66,6 +83,7 @@ export default function TransferScanMobile() {
   const [document, setDocument] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const [form, setForm] = useState({
     from_warehouse_id: "",
@@ -122,7 +140,7 @@ export default function TransferScanMobile() {
     try {
       setLoading(true);
       const res = await api.get(`/transfer-scan/${token}`);
-      const data = res.data;
+      const data = normalizeDocument(res.data);
 
       setDocument(data);
       setScanToken(token);
@@ -247,6 +265,8 @@ export default function TransferScanMobile() {
 
   const submitMultipart = async (endpoint, extraFields = {}) => {
     try {
+      setActionLoading(true);
+
       const payload = new FormData();
 
       Object.entries(extraFields).forEach(([key, value]) => {
@@ -264,8 +284,10 @@ export default function TransferScanMobile() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
+      const updatedDoc = normalizeDocument(res.data);
+
       toast.success(res.data.message || "Action effectuée");
-      setDocument(res.data.data);
+      setDocument(updatedDoc);
       setPhoto(null);
       setForm((prev) => ({
         ...prev,
@@ -275,12 +297,13 @@ export default function TransferScanMobile() {
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur lors du scan");
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const isAdmin = ["pdg", "admin"].includes(user?.role);
-  const isSourceSite =
-    Number(user?.site_id) === Number(document?.from_site_id);
+  const isSourceSite = Number(user?.site_id) === Number(document?.from_site_id);
   const isDestinationSite =
     Number(user?.site_id) === Number(document?.to_site_id);
 
@@ -303,372 +326,421 @@ export default function TransferScanMobile() {
     ["security_verified", "picked_up"].includes(document?.transport_status) &&
     (isDestinationSite || isAdmin);
 
+  const nextStepLabel = useMemo(() => {
+    if (!document) return "-";
+    if (document.transport_status === "waiting") return "Vérification sécurité";
+    if (document.transport_status === "security_verified")
+      return "Prise en charge chauffeur";
+    if (document.transport_status === "picked_up")
+      return "Réception destination";
+    if (document.transport_status === "received") return "Transfert terminé";
+    if (document.transport_status === "rejected") return "Bon rejeté";
+    return "-";
+  }, [document]);
+
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">
-          Scan transfert mobile
-        </h1>
-        <p className="text-slate-500">
-          Sécurité, chauffeur et réception finale via QR code.
-        </p>
-      </div>
-
-      <div className="rounded-2xl bg-white p-5 shadow space-y-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <input
-            className="rounded-xl border p-3"
-            placeholder="Token ou URL QR"
-            value={scanToken}
-            onChange={(e) => setScanToken(e.target.value)}
-          />
-
-          <button
-            onClick={() => loadDocument(scanToken)}
-            className="rounded-xl bg-slate-900 px-4 py-3 text-white"
-          >
-            Charger le bon
-          </button>
-
-          <button
-            onClick={() => setCameraOpen((prev) => !prev)}
-            className="rounded-xl bg-blue-700 px-4 py-3 text-white"
-          >
-            {cameraOpen ? "Fermer caméra" : "Scanner avec caméra"}
-          </button>
-        </div>
-
-        {cameraOpen && (
-          <div className="rounded-2xl border p-4">
-            <div id="qr-reader" />
-          </div>
-        )}
-      </div>
-
-      {loading && <div>Chargement...</div>}
-
-      {document && (
-        <>
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Bon</div>
-                <div className="font-semibold text-slate-800">
-                  {document.request_number}
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Flux</div>
-                <div className="font-semibold text-slate-800">
-                  {document.from_site?.name} → {document.to_site?.name}
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Statut métier</div>
-                <div className="mt-1">
-                  <span
-                    className={`rounded-lg px-2 py-1 text-xs font-semibold ${businessBadgeClass(
-                      document.status
-                    )}`}
-                  >
-                    {document.status}
-                  </span>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Statut transport</div>
-                <div className="mt-1">
-                  <span
-                    className={`rounded-lg px-2 py-1 text-xs font-semibold ${transportBadgeClass(
-                      document.transport_status
-                    )}`}
-                  >
-                    {document.transport_status}
-                  </span>
-                </div>
-              </div>
+    <div className="min-h-screen bg-slate-100">
+      <div className="mx-auto w-full max-w-6xl p-3 sm:p-4 md:p-6 space-y-4">
+        <div className="rounded-3xl bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">
+                Scan transfert mobile
+              </h1>
+              <p className="text-sm text-slate-500">
+                Sécurité, chauffeur et réception finale via QR code.
+              </p>
             </div>
 
-            <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full text-left">
-                <thead className="border-b border-slate-200">
-                  <tr className="text-slate-600">
-                    <th className="px-4 py-3">Produit</th>
-                    <th className="px-4 py-3">Demandé</th>
-                    <th className="px-4 py-3">Approuvé</th>
-                    <th className="px-4 py-3">Expédié</th>
-                    <th className="px-4 py-3">Reçu</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(document.lines ?? []).map((line) => (
-                    <tr key={line.id} className="border-b border-slate-100">
-                      <td className="px-4 py-3">{line.product?.name ?? "-"}</td>
-                      <td className="px-4 py-3">
-                        {formatQty(line.requested_quantity)}
-                      </td>
-                      <td className="px-4 py-3">
+            {document && (
+              <div className="flex flex-wrap gap-2">
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${businessBadgeClass(
+                    document.status
+                  )}`}
+                >
+                  {document.status}
+                </span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${transportBadgeClass(
+                    document.transport_status
+                  )}`}
+                >
+                  {document.transport_status}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl bg-white p-4 shadow-sm space-y-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto]">
+            <input
+              className="rounded-2xl border border-slate-200 p-3 text-sm"
+              placeholder="Token ou URL QR"
+              value={scanToken}
+              onChange={(e) => setScanToken(e.target.value)}
+            />
+
+            <button
+              onClick={() => loadDocument(scanToken)}
+              className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
+            >
+              Charger le bon
+            </button>
+
+            <button
+              onClick={() => setCameraOpen((prev) => !prev)}
+              className="rounded-2xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white"
+            >
+              {cameraOpen ? "Fermer caméra" : "Scanner avec caméra"}
+            </button>
+          </div>
+
+          {cameraOpen && (
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <div id="qr-reader" />
+            </div>
+          )}
+        </div>
+
+        {loading && (
+          <div className="rounded-3xl bg-white p-4 shadow-sm text-slate-500">
+            Chargement...
+          </div>
+        )}
+
+        {document && (
+          <>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <StatCard label="Bon" value={document.request_number} />
+              <StatCard
+                label="Flux"
+                value={`${document.from_site?.name || "-"} → ${document.to_site?.name || "-"}`}
+              />
+              <StatCard label="Étape suivante" value={nextStepLabel} />
+              <StatCard
+                label="Créé le"
+                value={formatDateTime(document.requested_at || document.created_at)}
+              />
+              <StatCard label="Notes" value={document.notes || "-"} />
+            </div>
+
+            <div className="rounded-3xl bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">
+                  Lignes du transfert
+                </h2>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                  {(document.lines ?? []).length} ligne(s)
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {(document.lines ?? []).map((line) => (
+                  <div
+                    key={line.id}
+                    className="rounded-2xl border border-slate-200 p-4"
+                  >
+                    <div className="font-semibold text-slate-800">
+                      {line.product?.name ?? "-"}
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500 md:grid-cols-4">
+                      <div>Demandé : {formatQty(line.requested_quantity)}</div>
+                      <div>
+                        Approuvé :{" "}
                         {line.approved_quantity != null
                           ? formatQty(line.approved_quantity)
                           : "-"}
-                      </td>
-                      <td className="px-4 py-3">
+                      </div>
+                      <div>
+                        Expédié :{" "}
                         {line.sent_quantity != null
                           ? formatQty(line.sent_quantity)
                           : "-"}
-                      </td>
-                      <td className="px-4 py-3">
+                      </div>
+                      <div>
+                        Reçu :{" "}
                         {line.received_quantity != null
                           ? formatQty(line.received_quantity)
                           : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {document.reject_reason && (
+                <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+                  <div className="font-semibold">Motif de rejet</div>
+                  <div>{document.reject_reason}</div>
+                </div>
+              )}
             </div>
 
-            {document.reject_reason && (
-              <div className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
-                <div className="font-semibold">Motif de rejet</div>
-                <div>{document.reject_reason}</div>
+            <div className="rounded-3xl bg-white p-4 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-800">
+                  Données de scan
+                </h2>
+                <span className="text-xs text-slate-500">
+                  Rôle connecté : {user?.role || "-"}
+                </span>
               </div>
-            )}
-          </div>
 
-          <div className="rounded-2xl bg-white p-5 shadow space-y-4">
-            <h2 className="text-xl font-semibold text-slate-800">
-              Données de scan
-            </h2>
+              {(canSecurityCheck || canReject) && (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Dépôt source
+                    </label>
+                    <select
+                      className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                      value={form.from_warehouse_id}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          from_warehouse_id: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Choisir dépôt source</option>
+                      {sourceWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}{" "}
+                          {warehouse.site_id ? `(Site ${warehouse.site_id})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-            {(canSecurityCheck || canReject) && (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Dépôt source
-                  </label>
-                  <select
-                    className="w-full rounded-xl border p-3"
-                    value={form.from_warehouse_id}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        from_warehouse_id: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Choisir dépôt source</option>
-                    {sourceWarehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}{" "}
-                        {warehouse.site_id ? `(Site ${warehouse.site_id})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Dépôt destination
+                    </label>
+                    <select
+                      className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                      value={form.to_warehouse_id}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          to_warehouse_id: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Choisir dépôt destination</option>
+                      {destinationWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}{" "}
+                          {warehouse.site_id ? `(Site ${warehouse.site_id})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Dépôt destination
-                  </label>
-                  <select
-                    className="w-full rounded-xl border p-3"
-                    value={form.to_warehouse_id}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        to_warehouse_id: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Choisir dépôt destination</option>
-                    {destinationWarehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}{" "}
-                        {warehouse.site_id ? `(Site ${warehouse.site_id})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-
-            {canReject && (
-              <input
-                className="w-full rounded-xl border p-3"
-                placeholder="Motif de rejet"
-                value={form.reject_reason}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    reject_reason: e.target.value,
-                  }))
-                }
-              />
-            )}
-
-            <textarea
-              className="w-full rounded-xl border p-3"
-              placeholder="Notes / réserves"
-              value={form.notes}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, notes: e.target.value }))
-              }
-            />
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <input
-                className="rounded-xl border p-3"
-                placeholder="Latitude"
-                value={form.latitude}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, latitude: e.target.value }))
-                }
-              />
-              <input
-                className="rounded-xl border p-3"
-                placeholder="Longitude"
-                value={form.longitude}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, longitude: e.target.value }))
-                }
-              />
-              <button
-                onClick={captureLocation}
-                className="rounded-xl bg-emerald-700 px-4 py-3 text-white"
-              >
-                Récupérer GPS
-              </button>
-            </div>
-
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setPhoto(e.target.files[0])}
-            />
-
-            <div className="flex flex-wrap gap-3">
-              {canSecurityCheck && (
-                <button
-                  onClick={() => {
-                    if (!form.from_warehouse_id || !form.to_warehouse_id) {
-                      toast.error(
-                        "Choisir le dépôt source et le dépôt destination"
-                      );
-                      return;
-                    }
-
-                    submitMultipart(`/transfer-scan/${scanToken}/security-check`, {
-                      from_warehouse_id: form.from_warehouse_id,
-                      to_warehouse_id: form.to_warehouse_id,
-                    });
-                  }}
-                  className="rounded-xl bg-slate-900 px-4 py-3 text-white"
-                >
-                  Valider sortie dépôt
-                </button>
-              )}
-
-              {canDriverPickup && (
-                <button
-                  onClick={() =>
-                    submitMultipart(`/transfer-scan/${scanToken}/driver-pickup`)
-                  }
-                  className="rounded-xl bg-blue-700 px-4 py-3 text-white"
-                >
-                  Confirmer prise en charge chauffeur
-                </button>
-              )}
-
-              {canReceive && (
-                <button
-                  onClick={() =>
-                    submitMultipart(
-                      `/transfer-scan/${scanToken}/destination-receive`
-                    )
-                  }
-                  className="rounded-xl bg-emerald-700 px-4 py-3 text-white"
-                >
-                  Confirmer réception finale
-                </button>
               )}
 
               {canReject && (
+                <input
+                  className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                  placeholder="Motif de rejet"
+                  value={form.reject_reason}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      reject_reason: e.target.value,
+                    }))
+                  }
+                />
+              )}
+
+              <textarea
+                className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                placeholder="Notes / réserves"
+                rows={3}
+                value={form.notes}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, notes: e.target.value }))
+                }
+              />
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <input
+                  className="rounded-2xl border border-slate-200 p-3 text-sm"
+                  placeholder="Latitude"
+                  value={form.latitude}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, latitude: e.target.value }))
+                  }
+                />
+                <input
+                  className="rounded-2xl border border-slate-200 p-3 text-sm"
+                  placeholder="Longitude"
+                  value={form.longitude}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, longitude: e.target.value }))
+                  }
+                />
                 <button
-                  onClick={() => {
-                    if (!form.reject_reason) {
-                      toast.error("Saisir un motif de rejet");
-                      return;
-                    }
-
-                    submitMultipart(`/transfer-scan/${scanToken}/reject`, {
-                      reject_reason: form.reject_reason,
-                    });
-                  }}
-                  className="rounded-xl bg-red-700 px-4 py-3 text-white"
+                  onClick={captureLocation}
+                  className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white"
                 >
-                  Rejeter le bon
+                  Récupérer GPS
                 </button>
-              )}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Photo / réserve
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setPhoto(e.target.files[0])}
+                  className="w-full rounded-2xl border border-slate-200 p-3 text-sm"
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="rounded-2xl bg-white p-5 shadow">
-            <h2 className="mb-4 text-xl font-semibold text-slate-800">
-              Historique des scans
-            </h2>
+            <div className="sticky bottom-3 z-10">
+              <div className="rounded-3xl bg-white/95 p-3 shadow-lg backdrop-blur">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {canSecurityCheck && (
+                    <button
+                      onClick={() => {
+                        if (!form.from_warehouse_id || !form.to_warehouse_id) {
+                          toast.error(
+                            "Choisir le dépôt source et le dépôt destination"
+                          );
+                          return;
+                        }
 
-            <div className="space-y-3">
-              {history.length === 0 && (
-                <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
-                  Aucun scan enregistré pour le moment.
+                        submitMultipart(`/transfer-scan/${scanToken}/security-check`, {
+                          from_warehouse_id: form.from_warehouse_id,
+                          to_warehouse_id: form.to_warehouse_id,
+                        });
+                      }}
+                      disabled={actionLoading}
+                      className="rounded-2xl bg-slate-900 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {actionLoading ? "Traitement..." : "Valider sortie dépôt"}
+                    </button>
+                  )}
+
+                  {canDriverPickup && (
+                    <button
+                      onClick={() =>
+                        submitMultipart(`/transfer-scan/${scanToken}/driver-pickup`)
+                      }
+                      disabled={actionLoading}
+                      className="rounded-2xl bg-blue-700 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {actionLoading
+                        ? "Traitement..."
+                        : "Confirmer prise en charge chauffeur"}
+                    </button>
+                  )}
+
+                  {canReceive && (
+                    <button
+                      onClick={() =>
+                        submitMultipart(
+                          `/transfer-scan/${scanToken}/destination-receive`
+                        )
+                      }
+                      disabled={actionLoading}
+                      className="rounded-2xl bg-emerald-700 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {actionLoading ? "Traitement..." : "Confirmer réception finale"}
+                    </button>
+                  )}
+
+                  {canReject && (
+                    <button
+                      onClick={() => {
+                        if (!form.reject_reason) {
+                          toast.error("Saisir un motif de rejet");
+                          return;
+                        }
+
+                        submitMultipart(`/transfer-scan/${scanToken}/reject`, {
+                          reject_reason: form.reject_reason,
+                        });
+                      }}
+                      disabled={actionLoading}
+                      className="rounded-2xl bg-red-700 px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {actionLoading ? "Traitement..." : "Rejeter le bon"}
+                    </button>
+                  )}
                 </div>
-              )}
 
-              {history.map((event) => (
-                <div
-                  key={event.id}
-                  className="rounded-xl border border-slate-200 p-4"
-                >
-                  <div className="font-semibold text-slate-800">
-                    {event.scan_stage} — {event.new_status}
-                  </div>
-
-                  <div className="text-sm text-slate-500">
-                    {event.user?.name ?? event.user?.email ?? "Utilisateur"} —{" "}
-                    {formatDateTime(event.scanned_at)}
-                  </div>
-
-                  <div className="text-sm text-slate-500">
-                    GPS: {event.latitude ?? "-"}, {event.longitude ?? "-"}
-                  </div>
-
-                  {event.notes && (
-                    <div className="mt-2 text-sm text-slate-700">
-                      {event.notes}
+                {!canSecurityCheck &&
+                  !canDriverPickup &&
+                  !canReceive &&
+                  !canReject && (
+                    <div className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+                      Aucune action disponible pour ce statut ou ce rôle.
                     </div>
                   )}
-
-                  {event.photo_url && (
-                    <img
-                      src={event.photo_url}
-                      alt="scan"
-                      className="mt-3 h-32 w-32 rounded-xl object-cover"
-                    />
-                  )}
-                </div>
-              ))}
+              </div>
             </div>
-          </div>
-        </>
-      )}
+
+            <div className="rounded-3xl bg-white p-4 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold text-slate-800">
+                Historique des scans
+              </h2>
+
+              <div className="space-y-3">
+                {history.length === 0 && (
+                  <div className="rounded-2xl bg-slate-50 p-4 text-slate-500">
+                    Aucun scan enregistré pour le moment.
+                  </div>
+                )}
+
+                {history.map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-2xl border border-slate-200 p-4"
+                  >
+                    <div className="font-semibold text-slate-800">
+                      {event.scan_stage} — {event.new_status}
+                    </div>
+
+                    <div className="mt-1 text-sm text-slate-500">
+                      {event.user?.name ?? event.user?.email ?? "Utilisateur"} —{" "}
+                      {formatDateTime(event.scanned_at)}
+                    </div>
+
+                    <div className="mt-1 text-sm text-slate-500">
+                      GPS: {event.latitude ?? "-"}, {event.longitude ?? "-"}
+                    </div>
+
+                    {event.notes && (
+                      <div className="mt-2 text-sm text-slate-700">
+                        {event.notes}
+                      </div>
+                    )}
+
+                    {event.photo_url && (
+                      <img
+                        src={event.photo_url}
+                        alt="scan"
+                        className="mt-3 h-28 w-28 rounded-2xl object-cover"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
