@@ -55,7 +55,7 @@ function StatCard({ label, value, children }) {
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="mt-1 break-words text-sm font-semibold text-slate-800">
+      <div className="mt-1 text-sm font-semibold text-slate-800 break-words">
         {children || value || "-"}
       </div>
     </div>
@@ -127,11 +127,6 @@ export default function InterSiteRequest() {
 
   const isDriverRole = ["driver", "chauffeur", "livreur", "courier"].includes(role);
 
-  const backendWeb = import.meta.env.VITE_BACKEND_WEB_URL || "";
-  const backendWebWithIndex = backendWeb.includes("/index.php")
-    ? backendWeb
-    : `${backendWeb}/index.php`;
-
   const loadReferenceFallbacks = async () => {
     try {
       let finalSites = Array.isArray(hookSites) ? hookSites : [];
@@ -148,7 +143,9 @@ export default function InterSiteRequest() {
               finalSites = rows;
               break;
             }
-          } catch (_) {}
+          } catch (_) {
+            // on essaie le suivant
+          }
         }
       }
 
@@ -162,7 +159,9 @@ export default function InterSiteRequest() {
               finalWarehouses = rows;
               break;
             }
-          } catch (_) {}
+          } catch (_) {
+            // on essaie le suivant
+          }
         }
       }
 
@@ -176,7 +175,9 @@ export default function InterSiteRequest() {
               finalProducts = rows;
               break;
             }
-          } catch (_) {}
+          } catch (_) {
+            // on essaie le suivant
+          }
         }
       }
 
@@ -184,11 +185,7 @@ export default function InterSiteRequest() {
       setWarehouses(finalWarehouses);
       setProducts(finalProducts);
 
-      if (
-        finalSites.length === 0 ||
-        finalWarehouses.length === 0 ||
-        finalProducts.length === 0
-      ) {
+      if (finalSites.length === 0 || finalWarehouses.length === 0 || finalProducts.length === 0) {
         toast.error("Certaines références sont incomplètes. Vérifie les endpoints.");
       }
     } catch (err) {
@@ -348,31 +345,6 @@ export default function InterSiteRequest() {
     String(selectedRequest.status || "").toLowerCase() === "pending" &&
     !isDriverRole &&
     (isGlobalApprover || (isSourceManagerRole && userSiteId === selectedFromSiteId));
-
-  const transferScanUrl = useMemo(() => {
-    if (selectedRequest?.qr_scan_url) return selectedRequest.qr_scan_url;
-    if (!selectedRequest?.qr_token) return "";
-    return `${backendWebWithIndex}/scan-transfer/${selectedRequest.qr_token}`;
-  }, [selectedRequest, backendWebWithIndex]);
-
-  const transferQrImageUrl = useMemo(() => {
-    if (!selectedRequest?.qr_token) return "";
-    return `${backendWebWithIndex}/transfer-qr/${selectedRequest.qr_token}.svg`;
-  }, [selectedRequest, backendWebWithIndex]);
-
-  const transferPrintUrl = useMemo(() => {
-    if (selectedRequest?.print_url) return selectedRequest.print_url;
-    if (!selectedRequest?.id) return "";
-    return `${backendWebWithIndex}/print/inter-site-request/${selectedRequest.id}`;
-  }, [selectedRequest, backendWebWithIndex]);
-
-  const printSelectedRequest = () => {
-    if (!transferPrintUrl) {
-      toast.error("URL d'impression introuvable");
-      return;
-    }
-    window.open(transferPrintUrl, "_blank");
-  };
 
   const updateLine = (index, field, value) => {
     setForm((prev) => {
@@ -535,7 +507,6 @@ export default function InterSiteRequest() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        {/* Bloc gauche */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Créer BT</h2>
@@ -718,7 +689,6 @@ export default function InterSiteRequest() {
           </div>
         </div>
 
-        {/* Bloc centre */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>
@@ -810,25 +780,15 @@ export default function InterSiteRequest() {
           </div>
         </div>
 
-        {/* Bloc droite */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Détails BT</h2>
 
             {selectedRequest && (
               <div className="flex flex-wrap gap-2">
-                {transferPrintUrl && (
-                  <button
-                    onClick={printSelectedRequest}
-                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
-                  >
-                    Imprimer BT
-                  </button>
-                )}
-
-                {transferScanUrl && (
+                {selectedRequest.qr_scan_url && (
                   <a
-                    href={transferScanUrl}
+                    href={selectedRequest.qr_scan_url}
                     target="_blank"
                     rel="noreferrer"
                     className="rounded-xl bg-blue-700 px-3 py-2 text-sm text-white"
@@ -932,82 +892,6 @@ export default function InterSiteRequest() {
                   {selectedRequest.approvedBy?.name ||
                     selectedRequest.approved_by?.name ||
                     "-"}
-                </div>
-              )}
-
-              {selectedRequest.qr_token && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-800">
-                        QR Code du bon de transfert
-                      </h3>
-                      <p className="text-sm text-slate-500">
-                        À scanner par la sécurité, le chauffeur et la réception.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {transferPrintUrl && (
-                        <button
-                          onClick={printSelectedRequest}
-                          className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
-                        >
-                          Imprimer
-                        </button>
-                      )}
-
-                      {transferScanUrl && (
-                        <a
-                          href={transferScanUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-xl bg-blue-700 px-4 py-2 text-sm text-white"
-                        >
-                          Ouvrir le scan
-                        </a>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-6 md:grid-cols-[220px_1fr]">
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <a href={transferScanUrl} target="_blank" rel="noreferrer">
-                        <img
-                          src={transferQrImageUrl}
-                          alt="QR Code BT"
-                          className="h-44 w-44 rounded-xl border bg-white p-2"
-                        />
-                      </a>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-xs uppercase tracking-wide text-slate-500">
-                          Token QR
-                        </div>
-                        <div className="mt-1 break-all text-sm font-semibold text-slate-800">
-                          {selectedRequest.qr_token}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-xs uppercase tracking-wide text-slate-500">
-                          URL de scan
-                        </div>
-                        <div className="mt-1 break-all text-sm text-slate-800">
-                          {transferScanUrl || "-"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-blue-50 p-4 text-sm text-blue-700">
-                        Ce QR peut être scanné :
-                        <br />• par la sécurité à la sortie dépôt
-                        <br />• par le chauffeur lors de la prise en charge
-                        <br />• par la réception à l’arrivée
-                      </div>
-                    </div>
-                  </div>
                 </div>
               )}
 
