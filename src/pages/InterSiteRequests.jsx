@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
-import useReferences from "../hooks/useReferences";
 import { formatDateTime, formatQty } from "../utils/formatters";
 
 function extractCollection(payload) {
@@ -18,7 +17,7 @@ function extractItem(payload) {
 }
 
 function businessBadgeClass(status) {
-  switch (status) {
+  switch (String(status || "").toLowerCase()) {
     case "pending":
       return "bg-slate-100 text-slate-700";
     case "approved":
@@ -35,7 +34,7 @@ function businessBadgeClass(status) {
 }
 
 function transportBadgeClass(status) {
-  switch (status) {
+  switch (String(status || "").toLowerCase()) {
     case "waiting":
       return "bg-slate-100 text-slate-700";
     case "security_verified":
@@ -51,12 +50,12 @@ function transportBadgeClass(status) {
   }
 }
 
-function StatCard({ label, value }) {
+function StatCard({ label, value, children }) {
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
       <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
       <div className="mt-1 text-sm font-semibold text-slate-800 break-words">
-        {value || "-"}
+        {children || value || "-"}
       </div>
     </div>
   );
@@ -64,20 +63,19 @@ function StatCard({ label, value }) {
 
 export default function InterSiteRequest() {
   const { user } = useAuth();
-  const {
-    sites = [],
-    warehouses = [],
-    products = [],
-    loading: refsLoading,
-  } = useReferences();
+
+  const [sites, setSites] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [products, setProducts] = useState([]);
+
+  const [refsLoading, setRefsLoading] = useState(true);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
-
-  const [loadingList, setLoadingList] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [approving, setApproving] = useState(false);
 
   const [filters, setFilters] = useState({
     search: "",
@@ -98,161 +96,40 @@ export default function InterSiteRequest() {
       },
     ],
   });
-/*
-  const role = String(user?.role || "").toLowerCase();
-  const isAdmin = ["pdg", "admin"].includes(role);
 
-    const canApproveRequest =
-    selectedRequest &&
-    selectedRequest.status === "pending" &&
-    (isAdmin ||
-      Number(user?.site_id) === Number(selectedRequest.from_site_id));
-*/
+  const role = String(user?.role || "").trim().toLowerCase();
 
-const role = String(user?.role || "").trim().toLowerCase();
+  const isGlobalApprover = [
+    "pdg",
+    "admin",
+    "administrateur",
+    "superadmin",
+    "super_admin",
+  ].includes(role);
 
-const isGlobalApprover = [
-  "pdg",
-  "admin",
-  "administrateur",
-  "superadmin",
-  "super_admin",
-].includes(role);
-
-const isSourceManagerRole = [
-  "manager",
-  "responsable",
-  "coordinateur",
-  "coordonnateur",
-  "controleur",
-  "contrôleur",
-  "stock",
-].includes(role);
-
-const isDriverRole = [
-  "driver",
-  "chauffeur",
-  "livreur",
-  "courier",
-].includes(role);
-
-const selectedFromSiteId = Number(
-  selectedRequest?.from_site_id ?? selectedRequest?.from_site?.id ?? 0
-);
-
-const userSiteId = Number(user?.site_id ?? 0);
-
-const canApproveRequest =
-  !!selectedRequest &&
-  String(selectedRequest.status || "").toLowerCase() === "pending" &&
-  !isDriverRole &&
-  (
-    isGlobalApprover ||
-    (isSourceManagerRole && userSiteId === selectedFromSiteId)
-  );
-  useEffect(() => {
-    loadRequests();
-  }, []);
-
-  useEffect(() => {
-    if (refsLoading) return;
-
-    setForm((prev) => {
-      const next = { ...prev };
-
-      // Utilisateur standard : destination = son site
-      if (!isAdmin && user?.site_id && !next.to_site_id) {
-        next.to_site_id = String(user.site_id);
-      }
-
-      // Admin/PDG : si rien n'est choisi, on met son site comme destination si disponible
-      if (isAdmin && user?.site_id && !next.to_site_id) {
-        next.to_site_id = String(user.site_id);
-      }
-
-      return next;
-    });
-  }, [refsLoading, isAdmin, user?.site_id]);
-
-  const loadRequests = async () => {
-    try {
-      setLoadingList(true);
-      const res = await api.get("/inter-site-requests");
-      const rows = extractCollection(res.data);
-      setRequests(rows);
-
-      if (!selectedRequest && rows.length > 0) {
-        openRequest(rows[0].id);
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Impossible de charger les demandes inter-sites");
-    } finally {
-      setLoadingList(false);
-    }
-  };
-
-  const openRequest = async (id) => {
-    try {
-      setLoadingDetail(true);
-      const res = await api.get(`/inter-site-requests/${id}`);
-      const item = extractItem(res.data);
-      setSelectedRequest(item);
-    } catch (err) {
-      console.error(err);
-      toast.error("Impossible d’ouvrir ce bon de transfert");
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
+  const isSourceManagerRole = [
+    "manager",
+    "responsable",
+    "coordinateur",
+    "coordonnateur",
+    "controleur",
+    "contrôleur",
+    "stock",
+  ].includes(role);
 
   const sourceWarehouses = useMemo(() => {
-    if (!form.from_site_id) return warehouses;
+    if (!form.from_site_id) return [];
     return warehouses.filter(
       (warehouse) => Number(warehouse.site_id) === Number(form.from_site_id)
     );
   }, [warehouses, form.from_site_id]);
 
   const destinationWarehouses = useMemo(() => {
-    if (!form.to_site_id) return warehouses;
+    if (!form.to_site_id) return [];
     return warehouses.filter(
       (warehouse) => Number(warehouse.site_id) === Number(form.to_site_id)
     );
   }, [warehouses, form.to_site_id]);
-
-  useEffect(() => {
-    if (!form.from_site_id) return;
-
-    const valid = sourceWarehouses.some(
-      (w) => Number(w.id) === Number(form.from_warehouse_id)
-    );
-
-    if (!valid) {
-      setForm((prev) => ({
-        ...prev,
-        from_warehouse_id: sourceWarehouses[0]?.id
-          ? String(sourceWarehouses[0].id)
-          : "",
-      }));
-    }
-  }, [form.from_site_id, sourceWarehouses]);
-
-  useEffect(() => {
-    if (!form.to_site_id) return;
-
-    const valid = destinationWarehouses.some(
-      (w) => Number(w.id) === Number(form.to_warehouse_id)
-    );
-
-    if (!valid) {
-      setForm((prev) => ({
-        ...prev,
-        to_warehouse_id: destinationWarehouses[0]?.id
-          ? String(destinationWarehouses[0].id)
-          : "",
-      }));
-    }
-  }, [form.to_site_id, destinationWarehouses]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((item) => {
@@ -260,7 +137,9 @@ const canApproveRequest =
         item.request_number,
         item.notes,
         item.from_site?.name,
+        item.fromSite?.name,
         item.to_site?.name,
+        item.toSite?.name,
         item.status,
         item.transport_status,
       ]
@@ -273,12 +152,137 @@ const canApproveRequest =
         : true;
 
       const matchStatus = filters.status
-        ? item.status === filters.status
+        ? String(item.status || "").toLowerCase() ===
+          String(filters.status || "").toLowerCase()
         : true;
 
       return matchSearch && matchStatus;
     });
   }, [requests, filters]);
+
+  const selectedFromSiteId = Number(
+    selectedRequest?.from_site_id ?? selectedRequest?.from_site?.id ?? selectedRequest?.fromSite?.id ?? 0
+  );
+
+  const userSiteId = Number(user?.site_id ?? 0);
+
+  const isDriverRole = ["driver", "chauffeur", "livreur", "courier"].includes(role);
+
+  const canApproveRequest =
+    !!selectedRequest &&
+    String(selectedRequest.status || "").toLowerCase() === "pending" &&
+    !isDriverRole &&
+    (
+      isGlobalApprover ||
+      (isSourceManagerRole && userSiteId === selectedFromSiteId)
+    );
+
+  const loadReferences = async () => {
+    try {
+      setRefsLoading(true);
+
+      const [sitesRes, warehousesRes, productsRes] = await Promise.all([
+        api.get("/sites"),
+        api.get("/warehouses"),
+        api.get("/products"),
+      ]);
+
+      setSites(extractCollection(sitesRes.data));
+      setWarehouses(extractCollection(warehousesRes.data));
+      setProducts(extractCollection(productsRes.data));
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible de charger les références");
+    } finally {
+      setRefsLoading(false);
+    }
+  };
+
+  const loadRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      const res = await api.get("/inter-site-requests");
+      const rows = extractCollection(res.data);
+      setRequests(rows);
+
+      if (!selectedRequest && rows.length > 0) {
+        await openRequest(rows[0].id);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible de charger les BT");
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  const openRequest = async (id) => {
+    if (!id) return;
+
+    try {
+      setDetailLoading(true);
+      const res = await api.get(`/inter-site-requests/${id}`);
+      setSelectedRequest(extractItem(res.data));
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible d’ouvrir ce BT");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReferences();
+    loadRequests();
+  }, []);
+
+  useEffect(() => {
+    if (refsLoading) return;
+
+    setForm((prev) => {
+      const next = { ...prev };
+
+      if (!next.to_site_id && user?.site_id) {
+        next.to_site_id = String(user.site_id);
+      }
+
+      return next;
+    });
+  }, [refsLoading, user?.site_id]);
+
+  useEffect(() => {
+    if (!form.from_site_id) return;
+
+    const stillValid = sourceWarehouses.some(
+      (w) => Number(w.id) === Number(form.from_warehouse_id)
+    );
+
+    if (!stillValid) {
+      setForm((prev) => ({
+        ...prev,
+        from_warehouse_id: sourceWarehouses[0]?.id
+          ? String(sourceWarehouses[0].id)
+          : "",
+      }));
+    }
+  }, [form.from_site_id, sourceWarehouses]);
+
+  useEffect(() => {
+    if (!form.to_site_id) return;
+
+    const stillValid = destinationWarehouses.some(
+      (w) => Number(w.id) === Number(form.to_warehouse_id)
+    );
+
+    if (!stillValid) {
+      setForm((prev) => ({
+        ...prev,
+        to_warehouse_id: destinationWarehouses[0]?.id
+          ? String(destinationWarehouses[0].id)
+          : "",
+      }));
+    }
+  }, [form.to_site_id, destinationWarehouses]);
 
   const updateLine = (index, field, value) => {
     setForm((prev) => {
@@ -354,15 +358,15 @@ const canApproveRequest =
       return;
     }
 
-    const hasInvalidLine = form.lines.some(
+    const invalidLine = form.lines.find(
       (line) =>
         !line.product_id ||
         !line.requested_quantity ||
         Number(line.requested_quantity) <= 0
     );
 
-    if (hasInvalidLine) {
-      toast.error("Compléter correctement toutes les lignes du BT");
+    if (invalidLine) {
+      toast.error("Compléter correctement les lignes du BT");
       return;
     }
 
@@ -389,7 +393,7 @@ const canApproveRequest =
       const res = await api.post("/inter-site-requests", payload);
       const created = extractItem(res.data);
 
-      toast.success(res.data?.message || "Bon de transfert créé");
+      toast.success(res.data?.message || "BT créé");
       await loadRequests();
 
       if (created?.id) {
@@ -399,13 +403,11 @@ const canApproveRequest =
       resetForm();
     } catch (err) {
       console.error(err);
-      toast.error(err?.response?.data?.message || "Erreur création du BT");
+      toast.error(err?.response?.data?.message || "Erreur création BT");
     } finally {
       setSubmitting(false);
     }
   };
-
-
 
   const approveRequest = async () => {
     if (!selectedRequest?.id) return;
@@ -416,10 +418,8 @@ const canApproveRequest =
       const res = await api.post(
         `/inter-site-requests/${selectedRequest.id}/approve`
       );
-      const updated = extractItem(res.data);
 
       toast.success(res.data?.message || "Bon de transfert approuvé");
-      setSelectedRequest(updated);
 
       await loadRequests();
       await openRequest(selectedRequest.id);
@@ -438,16 +438,14 @@ const canApproveRequest =
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-slate-800">
-          Demandes inter-sites
-        </h1>
+        <h1 className="text-3xl font-bold text-slate-800">Demandes inter-sites</h1>
         <p className="text-slate-500">
-          Créer un BT, suivre son état et approuver avant sortie dépôt.
+          Création, approbation et suivi des bons de transfert.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-        {/* BLOC 1 : CREATION */}
+        {/* Bloc gauche : création */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Créer BT</h2>
@@ -487,7 +485,6 @@ const canApproveRequest =
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, to_site_id: e.target.value }))
                 }
-                disabled={!isAdmin && !!user?.site_id}
               >
                 <option value="">Choisir site destinataire</option>
                 {sites.map((site) => (
@@ -548,7 +545,7 @@ const canApproveRequest =
 
             <div className="rounded-2xl border border-slate-200 p-4">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="font-semibold text-slate-800">Lignes BT</h3>
+                <h3 className="font-semibold text-slate-800">Lignes</h3>
                 <button
                   type="button"
                   onClick={addLine}
@@ -631,23 +628,23 @@ const canApproveRequest =
           </div>
         </div>
 
-        {/* BLOC 2 : LISTE */}
+        {/* Bloc centre : liste */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>
             <button
               onClick={loadRequests}
-              disabled={loadingList}
+              disabled={requestsLoading}
               className="rounded-xl bg-slate-200 px-3 py-2 text-sm text-slate-800"
             >
-              {loadingList ? "..." : "Rafraîchir"}
+              {requestsLoading ? "..." : "Rafraîchir"}
             </button>
           </div>
 
           <div className="mb-4 space-y-3">
             <input
               className="w-full rounded-xl border p-3"
-              placeholder="Recherche numéro / notes / site"
+              placeholder="Recherche numéro / site / note"
               value={filters.search}
               onChange={(e) =>
                 setFilters((prev) => ({ ...prev, search: e.target.value }))
@@ -693,14 +690,15 @@ const canApproveRequest =
                       {request.request_number}
                     </div>
                     <div className="text-sm text-slate-500">
-                      {request.from_site?.name || "-"} → {request.to_site?.name || "-"}
+                      {(request.from_site?.name || request.fromSite?.name || "-")} →{" "}
+                      {(request.to_site?.name || request.toSite?.name || "-")}
                     </div>
                     <div className="text-xs text-slate-400">
                       {formatDateTime(request.requested_at || request.created_at)}
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2 text-right">
+                  <div className="flex flex-col gap-2">
                     <span
                       className={`rounded-lg px-2 py-1 text-xs font-semibold ${businessBadgeClass(
                         request.status
@@ -708,7 +706,6 @@ const canApproveRequest =
                     >
                       {request.status}
                     </span>
-
                     <span
                       className={`rounded-lg px-2 py-1 text-xs font-semibold ${transportBadgeClass(
                         request.transport_status
@@ -723,13 +720,13 @@ const canApproveRequest =
           </div>
         </div>
 
-        {/* BLOC 3 : DETAIL */}
+        {/* Bloc droite : détail */}
         <div className="rounded-2xl bg-white p-5 shadow xl:col-span-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold text-slate-800">Détails BT</h2>
 
             {selectedRequest && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {selectedRequest.qr_scan_url && (
                   <a
                     href={selectedRequest.qr_scan_url}
@@ -754,19 +751,19 @@ const canApproveRequest =
             )}
           </div>
 
-          {loadingDetail && (
+          {detailLoading && (
             <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
               Chargement du détail...
             </div>
           )}
 
-          {!loadingDetail && !selectedRequest && (
+          {!detailLoading && !selectedRequest && (
             <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
               Aucun BT sélectionné.
             </div>
           )}
 
-          {!loadingDetail && selectedRequest && (
+          {!detailLoading && selectedRequest && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <StatCard label="Numéro" value={selectedRequest.request_number} />
@@ -776,10 +773,31 @@ const canApproveRequest =
                     selectedRequest.requested_at || selectedRequest.created_at
                   )}
                 />
-                <StatCard label="Site expéditeur" value={selectedRequest.from_site?.name} />
-                <StatCard label="Site destinataire" value={selectedRequest.to_site?.name} />
-                <StatCard label="Dépôt expéditeur" value={selectedRequest.from_warehouse?.name} />
-                <StatCard label="Dépôt destinataire" value={selectedRequest.to_warehouse?.name} />
+                <StatCard
+                  label="Site expéditeur"
+                  value={
+                    selectedRequest.from_site?.name ||
+                    selectedRequest.fromSite?.name
+                  }
+                />
+                <StatCard
+                  label="Site destinataire"
+                  value={selectedRequest.to_site?.name || selectedRequest.toSite?.name}
+                />
+                <StatCard
+                  label="Dépôt expéditeur"
+                  value={
+                    selectedRequest.from_warehouse?.name ||
+                    selectedRequest.fromWarehouse?.name
+                  }
+                />
+                <StatCard
+                  label="Dépôt destinataire"
+                  value={
+                    selectedRequest.to_warehouse?.name ||
+                    selectedRequest.toWarehouse?.name
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -814,7 +832,7 @@ const canApproveRequest =
                 </div>
               </div>
 
-              {selectedRequest.status === "pending" && (
+              {String(selectedRequest.status || "").toLowerCase() === "pending" && (
                 <div className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-700">
                   Ce BT est en attente d’approbation avant la sortie dépôt.
                 </div>
@@ -823,8 +841,8 @@ const canApproveRequest =
               {selectedRequest.approved_at && (
                 <div className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-700">
                   Approuvé le {formatDateTime(selectedRequest.approved_at)} par{" "}
-                  {selectedRequest.approved_by?.name ||
-                    selectedRequest.approvedBy?.name ||
+                  {selectedRequest.approvedBy?.name ||
+                    selectedRequest.approved_by?.name ||
                     "-"}
                 </div>
               )}
@@ -834,10 +852,7 @@ const canApproveRequest =
 
                 <div className="space-y-3">
                   {(selectedRequest.lines ?? []).map((line) => (
-                    <div
-                      key={line.id}
-                      className="rounded-xl bg-slate-50 p-4"
-                    >
+                    <div key={line.id} className="rounded-xl bg-slate-50 p-4">
                       <div className="font-semibold text-slate-800">
                         {line.product?.name || "-"}
                       </div>
