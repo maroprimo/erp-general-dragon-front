@@ -332,22 +332,30 @@ export default function PurchaseDocuments() {
     });
   }, [documents, tab, filters]);
 
-const isDirectBr =
-  selectedDoc?.doc_type === "BR" &&
-  String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
+  const isDirectBr =
+    selectedDoc?.doc_type === "BR" &&
+    String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
 
-const isAlreadyStockedBr =
-  selectedDoc?.doc_type === "BR" && !!selectedDoc?.stock_applied_at;
+  const isAlreadyStockedBr =
+    selectedDoc?.doc_type === "BR" && !!selectedDoc?.stock_applied_at;
 
-const canVerifyBr =
-  selectedDoc?.doc_type === "BR" &&
-  !isAlreadyStockedBr &&
-  !selectedDoc?.manager_verified_at;
+  const canEditBc =
+    selectedDoc?.doc_type === "BC" &&
+    !selectedDoc?.generated_goods_receipt_id &&
+    ["security_verified", "stock_validated"].includes(selectedDoc?.workflow_status);
 
-const canInvoiceBr =
-  selectedDoc?.doc_type === "BR" &&
-  !selectedDoc?.invoiced_at &&
-  !!selectedDoc?.manager_verified_at;
+  const canValidateBcToBr = canEditBc;
+
+  const canVerifyBr =
+    selectedDoc?.doc_type === "BR" &&
+    !isDirectBr &&
+    !isAlreadyStockedBr &&
+    !selectedDoc?.manager_verified_at;
+
+  const canInvoiceBr =
+    selectedDoc?.doc_type === "BR" &&
+    !selectedDoc?.invoiced_at &&
+    (!!selectedDoc?.manager_verified_at || isDirectBr || isAlreadyStockedBr);
 
   const updateBcLine = (lineId, field, value) => {
     setSelectedDoc((prev) => {
