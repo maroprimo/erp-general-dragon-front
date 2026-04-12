@@ -96,14 +96,10 @@ function hydrateBcLines(lines = []) {
 function normalizePurchaseOrders(items = []) {
   return items
     .filter((doc) => {
-      const source = String(doc.source || "").trim().toLowerCase();
+      const source = String(doc?.source || "").trim().toLowerCase();
 
-      // On masque le PO technique créé pour un BR direct
-      if (source === "purchase_pos_br_direct") {
-        return false;
-      }
-
-      return true;
+      // On masque le PO technique généré pour un BR direct
+      return source !== "purchase_pos_br_direct";
     })
     .map((doc) => ({
       id: doc.id,
@@ -152,7 +148,12 @@ function normalizeGoodsReceipts(items = []) {
     invoiced_at: doc.invoiced_at || null,
     stock_applied_at: doc.stock_applied_at || null,
     source_type: doc.source_type || null,
-    supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
+    supplier_name:
+      doc.supplier?.company_name ||
+      doc.supplier?.name ||
+      doc.purchaseOrder?.supplier?.company_name ||
+      doc.purchaseOrder?.supplier?.name ||
+      "-",
     site_name: doc.site?.name || "-",
     warehouse_name: doc.warehouse?.name || "-",
     total_price: doc.total_price ?? null,
@@ -243,9 +244,7 @@ export default function PurchaseDocuments() {
 
       if (poRes.status === "rejected") console.error("Erreur BC:", poRes.reason);
       if (grRes.status === "rejected") console.error("Erreur BR:", grRes.reason);
-      if (invRes.status === "rejected") {
-        console.error("Erreur Factures:", invRes.reason);
-      }
+      if (invRes.status === "rejected") console.error("Erreur Factures:", invRes.reason);
 
       const normalized = [
         ...normalizePurchaseOrders(purchaseOrders),
@@ -284,6 +283,7 @@ export default function PurchaseDocuments() {
 
   useEffect(() => {
     refreshDocuments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const stats = useMemo(() => {
@@ -337,7 +337,7 @@ export default function PurchaseDocuments() {
     String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
 
   const isAlreadyStockedBr =
-    selectedDoc?.doc_type === "BR" && !!selectedDoc?.stock_applied_at;
+    selectedDoc?.doc_type === "BR" && Boolean(selectedDoc?.stock_applied_at);
 
   const canEditBc =
     selectedDoc?.doc_type === "BC" &&
@@ -348,14 +348,13 @@ export default function PurchaseDocuments() {
 
   const canVerifyBr =
     selectedDoc?.doc_type === "BR" &&
-    !isDirectBr &&
     !isAlreadyStockedBr &&
     !selectedDoc?.manager_verified_at;
 
   const canInvoiceBr =
     selectedDoc?.doc_type === "BR" &&
-    !selectedDoc?.invoiced_at &&
-    (!!selectedDoc?.manager_verified_at || isDirectBr || isAlreadyStockedBr);
+    !!selectedDoc?.manager_verified_at &&
+    !selectedDoc?.invoiced_at;
 
   const updateBcLine = (lineId, field, value) => {
     setSelectedDoc((prev) => {
@@ -765,10 +764,15 @@ export default function PurchaseDocuments() {
                   </div>
                 </div>
 
-                {selectedDoc.doc_type === "BR" && isDirectBr && (
+                {selectedDoc.doc_type === "BR" && isDirectBr && !selectedDoc?.manager_verified_at && (
+                  <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
+                    Ce BR direct a été créé, mais l’entrée en stock ne sera faite qu’après validation responsable.
+                  </div>
+                )}
+
+                {selectedDoc.doc_type === "BR" && isDirectBr && selectedDoc?.manager_verified_at && (
                   <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
-                    Ce BR direct a déjà été intégré au stock au moment de sa création.
-                    Aucune validation supplémentaire n’est nécessaire.
+                    Ce BR direct a été validé et intégré au stock.
                   </div>
                 )}
 
