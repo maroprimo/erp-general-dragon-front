@@ -336,20 +336,12 @@ export default function PurchaseDocuments() {
     selectedDoc?.doc_type === "BR" &&
     String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
 
-  const isAlreadyStockedBr =
-    selectedDoc?.doc_type === "BR" && Boolean(selectedDoc?.stock_applied_at);
-
   const canEditBc =
     selectedDoc?.doc_type === "BC" &&
     !selectedDoc?.generated_goods_receipt_id &&
     ["security_verified", "stock_validated"].includes(selectedDoc?.workflow_status);
 
   const canValidateBcToBr = canEditBc;
-
-  const canVerifyBr =
-    selectedDoc?.doc_type === "BR" &&
-    !isAlreadyStockedBr &&
-    !selectedDoc?.manager_verified_at;
 
   const canInvoiceBr =
     selectedDoc?.doc_type === "BR" &&
@@ -442,22 +434,6 @@ export default function PurchaseDocuments() {
       toast.error(
         err?.response?.data?.message || "Erreur lors de la validation du BC"
       );
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  const verifyBr = async () => {
-    if (!selectedDoc || selectedDoc.doc_type !== "BR") return;
-
-    try {
-      setProcessing(true);
-      const res = await api.post(`/goods-receipts/${selectedDoc.id}/manager-verify`);
-      toast.success(res.data?.message || "BR vérifié");
-      await refreshDocuments({ doc_type: "BR", id: selectedDoc.id });
-    } catch (err) {
-      console.error(err);
-      toast.error(err?.response?.data?.message || "Erreur vérification BR");
     } finally {
       setProcessing(false);
     }
@@ -766,7 +742,7 @@ export default function PurchaseDocuments() {
 
                 {selectedDoc.doc_type === "BR" && isDirectBr && !selectedDoc?.manager_verified_at && (
                   <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
-                    Ce BR direct a été créé, mais l’entrée en stock ne sera faite qu’après validation responsable.
+                    Ce BR direct doit être validé via “Ouvrir scan” avant intégration au stock.
                   </div>
                 )}
 
@@ -985,16 +961,6 @@ export default function PurchaseDocuments() {
                       className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
                     >
                       {processing ? "Validation..." : "Valider BC → Générer BR"}
-                    </button>
-                  )}
-
-                  {canVerifyBr && (
-                    <button
-                      onClick={verifyBr}
-                      disabled={processing}
-                      className="rounded-xl bg-blue-700 px-4 py-3 text-white disabled:opacity-60"
-                    >
-                      {processing ? "Vérification..." : "Vérification responsable"}
                     </button>
                   )}
 
