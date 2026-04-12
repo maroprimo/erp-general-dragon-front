@@ -757,17 +757,13 @@ const canInvoiceBr =
                   </div>
                 </div>
 
-                {selectedDoc.doc_type === "BR" && isDirectBr && !selectedDoc?.manager_verified_at && (
-                  <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
-                    Ce BR direct a été créé, mais l’entrée en stock ne sera faite qu’après validation responsable.
+                {selectedDoc.doc_type === "BR" && isDirectBr && (
+                  <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
+                    Ce BR direct a déjà été intégré au stock au moment de sa création.
+                    Aucune validation supplémentaire n’est nécessaire.
                   </div>
                 )}
 
-                {selectedDoc.doc_type === "BR" && isDirectBr && selectedDoc?.manager_verified_at && (
-                  <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
-                    Ce BR direct a été validé et intégré au stock.
-                  </div>
-                )}
                 {selectedDoc.qr_token && (
                   <div className="rounded-2xl bg-slate-50 p-5">
                     <div className="mb-3 text-lg font-semibold text-slate-800">
