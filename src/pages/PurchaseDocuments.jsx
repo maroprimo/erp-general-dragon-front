@@ -94,31 +94,43 @@ function hydrateBcLines(lines = []) {
 }
 
 function normalizePurchaseOrders(items = []) {
-  return items.map((doc) => ({
-    id: doc.id,
-    doc_type: "BC",
-    doc_number: doc.order_number || `BC-${doc.id}`,
-    doc_date: doc.order_date || doc.created_at || null,
-    status: doc.status || "-",
-    workflow_status: doc.workflow_status || "-",
-    qr_token: doc.qr_token || null,
-    qr_scan_url: doc.qr_scan_url || null,
-    security_verified_at: doc.security_verified_at || null,
-    security_verified_by: doc.security_verified_by || doc.securityVerifiedBy || null,
-    stock_validated_at: doc.stock_validated_at || null,
-    stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
-    supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
-    site_name: doc.site?.name || "-",
-    warehouse_name: doc.warehouse?.name || "-",
-    total_price: doc.total_price ?? null,
-    notes: doc.notes || "",
-    validated_to_br_at: doc.validated_to_br_at || null,
-    generated_goods_receipt_id: doc.generated_goods_receipt_id || null,
-    generated_goods_receipt:
-      doc.generated_goods_receipt || doc.generatedGoodsReceipt || null,
-    lines: hydrateBcLines(doc.lines || []),
-    raw: doc,
-  }));
+  return items
+    .filter((doc) => {
+      const source = String(doc.source || "").trim().toLowerCase();
+
+      // On masque le PO technique créé pour un BR direct
+      if (source === "purchase_pos_br_direct") {
+        return false;
+      }
+
+      return true;
+    })
+    .map((doc) => ({
+      id: doc.id,
+      doc_type: "BC",
+      doc_number: doc.order_number || `BC-${doc.id}`,
+      doc_date: doc.order_date || doc.created_at || null,
+      status: doc.status || "-",
+      workflow_status: doc.workflow_status || "-",
+      qr_token: doc.qr_token || null,
+      qr_scan_url: doc.qr_scan_url || null,
+      security_verified_at: doc.security_verified_at || null,
+      security_verified_by: doc.security_verified_by || doc.securityVerifiedBy || null,
+      stock_validated_at: doc.stock_validated_at || null,
+      stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
+      supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
+      site_name: doc.site?.name || "-",
+      warehouse_name: doc.warehouse?.name || "-",
+      total_price: doc.total_price ?? doc.total_amount ?? null,
+      notes: doc.notes || "",
+      validated_to_br_at: doc.validated_to_br_at || null,
+      generated_goods_receipt_id: doc.generated_goods_receipt_id || null,
+      generated_goods_receipt:
+        doc.generated_goods_receipt || doc.generatedGoodsReceipt || null,
+      source: doc.source || null,
+      lines: hydrateBcLines(doc.lines || []),
+      raw: doc,
+    }));
 }
 
 function normalizeGoodsReceipts(items = []) {
@@ -138,6 +150,8 @@ function normalizeGoodsReceipts(items = []) {
     manager_verified_at: doc.manager_verified_at || null,
     manager_verified_by: doc.manager_verified_by || doc.managerVerifiedBy || null,
     invoiced_at: doc.invoiced_at || null,
+    stock_applied_at: doc.stock_applied_at || null,
+    source_type: doc.source_type || null,
     supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
     site_name: doc.site?.name || "-",
     warehouse_name: doc.warehouse?.name || "-",
@@ -164,8 +178,8 @@ function normalizeInvoices(items = []) {
     stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
     supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
     site_name: doc.site?.name || doc.goodsReceipt?.site?.name || "-",
-    warehouse_name: doc.goodsReceipt?.warehouse?.name || "-",
-    total_price: null,
+    warehouse_name: doc.goodsReceipt?.warehouse?.name || doc.warehouse?.name || "-",
+    total_price: doc.amount_ttc ?? doc.total_price ?? null,
     notes: doc.notes || "",
     goods_receipt: doc.goods_receipt || doc.goodsReceipt || null,
     lines: doc.lines || [],
@@ -229,8 +243,9 @@ export default function PurchaseDocuments() {
 
       if (poRes.status === "rejected") console.error("Erreur BC:", poRes.reason);
       if (grRes.status === "rejected") console.error("Erreur BR:", grRes.reason);
-      if (invRes.status === "rejected")
+      if (invRes.status === "rejected") {
         console.error("Erreur Factures:", invRes.reason);
+      }
 
       const normalized = [
         ...normalizePurchaseOrders(purchaseOrders),
@@ -317,6 +332,13 @@ export default function PurchaseDocuments() {
     });
   }, [documents, tab, filters]);
 
+  const isDirectBr =
+    selectedDoc?.doc_type === "BR" &&
+    String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
+
+  const isAlreadyStockedBr =
+    selectedDoc?.doc_type === "BR" && !!selectedDoc?.stock_applied_at;
+
   const canEditBc =
     selectedDoc?.doc_type === "BC" &&
     !selectedDoc?.generated_goods_receipt_id &&
@@ -325,12 +347,15 @@ export default function PurchaseDocuments() {
   const canValidateBcToBr = canEditBc;
 
   const canVerifyBr =
-    selectedDoc?.doc_type === "BR" && !selectedDoc?.manager_verified_at;
+    selectedDoc?.doc_type === "BR" &&
+    !isDirectBr &&
+    !isAlreadyStockedBr &&
+    !selectedDoc?.manager_verified_at;
 
   const canInvoiceBr =
     selectedDoc?.doc_type === "BR" &&
-    !!selectedDoc?.manager_verified_at &&
-    !selectedDoc?.invoiced_at;
+    !selectedDoc?.invoiced_at &&
+    (!!selectedDoc?.manager_verified_at || isDirectBr || isAlreadyStockedBr);
 
   const updateBcLine = (lineId, field, value) => {
     setSelectedDoc((prev) => {
@@ -740,6 +765,13 @@ export default function PurchaseDocuments() {
                   </div>
                 </div>
 
+                {selectedDoc.doc_type === "BR" && isDirectBr && (
+                  <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
+                    Ce BR direct a déjà été intégré au stock au moment de sa création.
+                    Aucune validation supplémentaire n’est nécessaire.
+                  </div>
+                )}
+
                 {selectedDoc.qr_token && (
                   <div className="rounded-2xl bg-slate-50 p-5">
                     <div className="mb-3 text-lg font-semibold text-slate-800">
@@ -836,7 +868,9 @@ export default function PurchaseDocuments() {
                   </div>
                 )}
 
-                {(selectedDoc.doc_type === "BC" || selectedDoc.doc_type === "BR" || selectedDoc.doc_type === "FACTURE") &&
+                {(selectedDoc.doc_type === "BC" ||
+                  selectedDoc.doc_type === "BR" ||
+                  selectedDoc.doc_type === "FACTURE") &&
                   Array.isArray(selectedDoc.lines) &&
                   selectedDoc.lines.length > 0 && (
                     <div className="overflow-x-auto">
