@@ -345,12 +345,12 @@ export default function PurchaseDocuments() {
     ["security_verified", "stock_validated"].includes(selectedDoc?.workflow_status);
 
   const canValidateBcToBr = canEditBc;
-
+/*
   const canVerifyBr =
     selectedDoc?.doc_type === "BR" &&
     !isAlreadyStockedBr &&
     !selectedDoc?.manager_verified_at;
-
+*/
   const canInvoiceBr =
     selectedDoc?.doc_type === "BR" &&
     !!selectedDoc?.manager_verified_at &&

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import api from "../services/api";
 import toast from "react-hot-toast";
@@ -25,6 +25,7 @@ export default function PurchaseDocumentScanMobile() {
   const [data, setData] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [processing, setProcessing] = useState(false);
 
   const scannerRef = useRef(null);
   const scannerActiveRef = useRef(false);
@@ -99,6 +100,7 @@ export default function PurchaseDocumentScanMobile() {
 
   const securityCheck = async () => {
     try {
+      setProcessing(true);
       const res = await api.post(`/purchase-document-scan/${scanToken}/security-check`);
       toast.success(res.data.message || "Vérification sécurité OK");
       setData({
@@ -109,13 +111,16 @@ export default function PurchaseDocumentScanMobile() {
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur sécurité");
+    } finally {
+      setProcessing(false);
     }
   };
 
   const stockValidate = async () => {
     try {
+      setProcessing(true);
       const res = await api.post(`/purchase-document-scan/${scanToken}/stock-validate`);
-      toast.success(res.data.message || "Validation stock OK");
+      toast.success(res.data.message || "Validation responsable stock OK");
       setData({
         type: res.data.type,
         label: res.data.label,
@@ -124,10 +129,66 @@ export default function PurchaseDocumentScanMobile() {
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur validation stock");
+    } finally {
+      setProcessing(false);
     }
   };
 
-  const workflow = data?.document?.workflow_status;
+  const document = data?.document || null;
+
+  const workflow = String(document?.workflow_status || "").toLowerCase();
+  const label = String(data?.label || "").toUpperCase();
+  const sourceType = String(document?.source_type || "").toLowerCase();
+
+  const isBC =
+    label === "BC" ||
+    !!document?.order_number;
+
+  const isBR =
+    label === "BR" ||
+    !!document?.receipt_number;
+
+  const isDirectBr = isBR && sourceType === "purchase_pos_direct";
+
+  const canSecurityCheck = useMemo(() => {
+    return (
+      isBC &&
+      !document?.security_verified_at &&
+      ["waiting_security", "pending", "", "-"].includes(workflow)
+    );
+  }, [isBC, document?.security_verified_at, workflow]);
+
+  const canManagerValidate = useMemo(() => {
+    // BC : validation responsable stock possible après scan sécurité
+    if (isBC) {
+      return (
+        !document?.stock_validated_at &&
+        ["waiting_security", "security_verified", "stock_validated", "", "-"].includes(
+          workflow
+        )
+      );
+    }
+
+    // BR : validation responsable avant entrée en stock
+    if (isBR) {
+      return (
+        !document?.manager_verified_at &&
+        !document?.stock_applied_at &&
+        ["waiting_manager", "security_verified", "stock_validated", "", "-"].includes(
+          workflow
+        )
+      );
+    }
+
+    return false;
+  }, [
+    isBC,
+    isBR,
+    document?.stock_validated_at,
+    document?.manager_verified_at,
+    document?.stock_applied_at,
+    workflow,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -172,45 +233,70 @@ export default function PurchaseDocumentScanMobile() {
       {data && (
         <>
           <div className="rounded-2xl bg-white p-5 shadow">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div className="rounded-xl bg-slate-50 p-4">
                 <div className="text-sm text-slate-500">Type</div>
-                <div className="font-semibold text-slate-800">{data.label}</div>
+                <div className="font-semibold text-slate-800">{data.label || "-"}</div>
               </div>
 
               <div className="rounded-xl bg-slate-50 p-4">
                 <div className="text-sm text-slate-500">Workflow</div>
                 <div className="font-semibold text-slate-800">
-                  {data.document?.workflow_status || "-"}
+                  {document?.workflow_status || "-"}
                 </div>
               </div>
 
               <div className="rounded-xl bg-slate-50 p-4">
                 <div className="text-sm text-slate-500">Date sécurité</div>
                 <div className="font-semibold text-slate-800">
-                  {formatDateTime(data.document?.security_verified_at)}
+                  {formatDateTime(document?.security_verified_at)}
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Validation responsable</div>
+                <div className="font-semibold text-slate-800">
+                  {formatDateTime(
+                    document?.manager_verified_at || document?.stock_validated_at
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
+          {isBR && !document?.manager_verified_at && (
+            <div className="rounded-2xl bg-amber-50 p-4 text-amber-700">
+              {isDirectBr
+                ? "Ce BR direct doit être validé par le responsable avant intégration au stock."
+                : "Ce BR doit être validé par le responsable avant intégration au stock."}
+            </div>
+          )}
+
+          {isBR && document?.manager_verified_at && (
+            <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-700">
+              Ce BR a déjà été validé.
+            </div>
+          )}
+
           <div className="rounded-2xl bg-white p-5 shadow">
             <div className="flex flex-wrap gap-3">
-              {workflow === "waiting_security" && (
+              {canSecurityCheck && (
                 <button
                   onClick={securityCheck}
-                  className="rounded-xl bg-slate-900 px-4 py-3 text-white"
+                  disabled={processing}
+                  className="rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-60"
                 >
-                  Vérification sécurité
+                  {processing ? "Traitement..." : "Vérification sécurité"}
                 </button>
               )}
 
-              {(workflow === "waiting_security" || workflow === "security_verified") && (
+              {canManagerValidate && (
                 <button
                   onClick={stockValidate}
-                  className="rounded-xl bg-emerald-700 px-4 py-3 text-white"
+                  disabled={processing}
+                  className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
                 >
-                  Validation responsable stock
+                  {processing ? "Traitement..." : "Validation responsable stock"}
                 </button>
               )}
             </div>
