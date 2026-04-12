@@ -23,7 +23,12 @@ export default function Stock() {
       if (customFilters.warehouse_id) params.warehouse_id = customFilters.warehouse_id;
 
       const res = await api.get("/stock-levels", { params });
-      setStocks(res.data.data ?? res.data);
+      const rows = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+        ? res.data
+        : [];
+      setStocks(rows);
       setError("");
     } catch (err) {
       console.error(err);

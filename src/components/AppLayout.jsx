@@ -64,8 +64,6 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     //{ key: "productionFinish", label: "Fin fabrication", roles: ["pdg", "admin", "cuisine"] },
     { key: "ia", label: "IA", roles: ["pdg"] },
     { key: "purchasePOS", label: "Achat POS", roles: ["pdg", "admin", "achat", "stock"] },
-    { key: "purchases", label: "Achats", roles: ["pdg", "admin", "achat"] },
-    { key: "receivePurchase", label: "Réception fournisseur", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "purchaseDocuments", label: "Docs achats", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "suppliers", label: "Fournisseurs", roles: ["pdg", "admin", "achat", "stock"] },
     { key: "transfers", label: "Transferts", roles: ["pdg", "admin", "stock"] },
