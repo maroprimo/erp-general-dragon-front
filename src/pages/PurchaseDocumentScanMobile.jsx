@@ -120,7 +120,7 @@ export default function PurchaseDocumentScanMobile() {
     try {
       setProcessing(true);
       const res = await api.post(`/purchase-document-scan/${scanToken}/stock-validate`);
-      toast.success(res.data.message || "Validation responsable stock OK");
+      toast.success(res.data.message || "Validation OK");
       setData({
         type: res.data.type,
         label: res.data.label,
@@ -128,27 +128,24 @@ export default function PurchaseDocumentScanMobile() {
       });
     } catch (err) {
       console.error(err);
-      toast.error(err?.response?.data?.message || "Erreur validation stock");
+      toast.error(err?.response?.data?.message || "Erreur validation");
     } finally {
       setProcessing(false);
     }
   };
 
   const document = data?.document || null;
-
   const workflow = String(document?.workflow_status || "").toLowerCase();
   const label = String(data?.label || "").toUpperCase();
   const sourceType = String(document?.source_type || "").toLowerCase();
+  const status = String(document?.status || "").toLowerCase();
 
-  const isBC =
-    label === "BC" ||
-    !!document?.order_number;
-
-  const isBR =
-    label === "BR" ||
-    !!document?.receipt_number;
+  const isBC = label === "BC" || !!document?.order_number;
+  const isBR = label === "BR" || !!document?.receipt_number;
+  const isInvoice = label === "FACTURE" || !!document?.invoice_number;
 
   const isDirectBr = isBR && sourceType === "purchase_pos_direct";
+  const isDirectInvoice = isInvoice && !document?.goods_receipt_id;
 
   const canSecurityCheck = useMemo(() => {
     return (
@@ -159,7 +156,6 @@ export default function PurchaseDocumentScanMobile() {
   }, [isBC, document?.security_verified_at, workflow]);
 
   const canManagerValidate = useMemo(() => {
-    // BC : validation responsable stock possible après scan sécurité
     if (isBC) {
       return (
         !document?.stock_validated_at &&
@@ -169,7 +165,6 @@ export default function PurchaseDocumentScanMobile() {
       );
     }
 
-    // BR : validation responsable avant entrée en stock
     if (isBR) {
       return (
         !document?.manager_verified_at &&
@@ -180,21 +175,33 @@ export default function PurchaseDocumentScanMobile() {
       );
     }
 
+    if (isInvoice) {
+      return status === "draft";
+    }
+
     return false;
   }, [
     isBC,
     isBR,
+    isInvoice,
     document?.stock_validated_at,
     document?.manager_verified_at,
     document?.stock_applied_at,
     workflow,
+    status,
   ]);
+
+  const actionLabel = useMemo(() => {
+    if (isInvoice) return "Validation facture";
+    if (isBR) return "Validation responsable stock";
+    return "Validation responsable stock";
+  }, [isInvoice, isBR]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-800">Scan document achat</h1>
-        <p className="text-slate-500">Sécurité puis validation responsable stock.</p>
+        <p className="text-slate-500">Sécurité puis validation responsable.</p>
       </div>
 
       <div className="rounded-2xl bg-white p-5 shadow space-y-4">
@@ -247,18 +254,16 @@ export default function PurchaseDocumentScanMobile() {
               </div>
 
               <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Date sécurité</div>
+                <div className="text-sm text-slate-500">Statut</div>
                 <div className="font-semibold text-slate-800">
-                  {formatDateTime(document?.security_verified_at)}
+                  {document?.status || "-"}
                 </div>
               </div>
 
               <div className="rounded-xl bg-slate-50 p-4">
-                <div className="text-sm text-slate-500">Validation responsable</div>
+                <div className="text-sm text-slate-500">Date sécurité</div>
                 <div className="font-semibold text-slate-800">
-                  {formatDateTime(
-                    document?.manager_verified_at || document?.stock_validated_at
-                  )}
+                  {formatDateTime(document?.security_verified_at)}
                 </div>
               </div>
             </div>
@@ -275,6 +280,18 @@ export default function PurchaseDocumentScanMobile() {
           {isBR && document?.manager_verified_at && (
             <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-700">
               Ce BR a déjà été validé.
+            </div>
+          )}
+
+          {isInvoice && isDirectInvoice && status === "draft" && (
+            <div className="rounded-2xl bg-amber-50 p-4 text-amber-700">
+              Cette facture directe est en brouillon. Le stock n’entrera qu’après validation.
+            </div>
+          )}
+
+          {isInvoice && status === "validated" && (
+            <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-700">
+              Cette facture a déjà été validée.
             </div>
           )}
 
@@ -296,7 +313,7 @@ export default function PurchaseDocumentScanMobile() {
                   disabled={processing}
                   className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
                 >
-                  {processing ? "Traitement..." : "Validation responsable stock"}
+                  {processing ? "Traitement..." : actionLabel}
                 </button>
               )}
             </div>
