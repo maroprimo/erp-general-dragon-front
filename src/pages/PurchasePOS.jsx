@@ -398,6 +398,11 @@ export default function PurchasePOS() {
       return;
     }
 
+    if (!header.warehouse_id) {
+      toast.error("Choisir le dépôt");
+      return;
+    }
+
     if (cart.length === 0) {
       toast.error("Le panier est vide");
       return;
@@ -412,80 +417,57 @@ export default function PurchasePOS() {
       return;
     }
 
-    if (
-      (header.document_mode === "br_direct") &&
-      !header.warehouse_id
-    ) {
-      toast.error("Choisir le dépôt pour le BR direct");
-      return;
-    }
-
     try {
       setSubmitting(true);
 
-      if (header.document_mode === "bc") {
+      if (header.document_mode === "bc" || header.document_mode === "br_direct") {
         const payload = {
-          order_number: generateDocumentNumber("BC"),
           supplier_id: Number(header.supplier_id),
-          site_id: Number(header.site_id),
-          status: "pending",
-          order_date: new Date().toISOString(),
-          expected_date: header.expected_delivery_at || null,
-          notes: header.notes || "",
-          lines: cart.map((line) => ({
-            product_id: Number(line.product_id),
-            ordered_quantity: Number(line.quantity),
-            unit_cost: Number(line.unit_price),
-          })),
-        };
-
-        const res = await api.post("/purchase-orders", payload);
-        const orderNumber =
-          res.data?.data?.order_number || res.data?.order_number || payload.order_number;
-        toast.success(`Bon de commande créé : ${orderNumber}`);
-      }
-
-      if (header.document_mode === "br_direct") {
-        const payload = {
-          receipt_number: generateDocumentNumber("BR"),
-          purchase_order_id: null,
-          supplier_id: Number(header.supplier_id),
-          source_type: "purchase_pos_direct",
           site_id: Number(header.site_id),
           warehouse_id: Number(header.warehouse_id),
-          status: "received",
+          document_mode: header.document_mode,
+          expected_delivery_at: header.expected_delivery_at || null,
           supplier_invoice_ref: header.supplier_invoice_ref || null,
-          document_date: new Date().toISOString(),
-          received_at: new Date().toISOString(),
-          received_by: user?.id ? Number(user.id) : null,
           notes: header.notes || "",
           lines: cart.map((line) => ({
             product_id: Number(line.product_id),
-            received_quantity: Number(line.quantity),
-            accepted_quantity: Number(line.quantity),
-            rejected_quantity: 0,
-            unit_cost: Number(line.unit_price),
-            notes: line.last_supplier_name
-              ? `Dernier fournisseur: ${line.last_supplier_name}`
-              : null,
+            quantity: Number(line.quantity),
+            unit_price: Number(line.unit_price),
           })),
         };
 
-        const res = await api.post("/goods-receipts", payload);
-        const receiptNumber =
-          res.data?.data?.receipt_number ||
-          res.data?.receipt_number ||
-          payload.receipt_number;
-        toast.success(`Bon de réception créé : ${receiptNumber}`);
+        const res = await api.post("/purchase-pos/create-document", payload);
+
+        if (header.document_mode === "bc") {
+          const orderNumber =
+            res.data?.purchase_order?.order_number ||
+            res.data?.data?.order_number ||
+            "BC créé";
+          toast.success(`Bon de commande créé : ${orderNumber}`);
+        } else {
+          const receiptNumber =
+            res.data?.goods_receipt?.receipt_number ||
+            res.data?.data?.receipt_number ||
+            "BR créé";
+          toast.success(`Bon de réception créé : ${receiptNumber}`);
+        }
       }
 
       if (header.document_mode === "facture_direct") {
+        const amountHt = totalAmount;
+        const amountTva = 0;
+        const amountTtc = amountHt + amountTva;
+
         const payload = {
-          invoice_number: generateDocumentNumber("FAC"),
           supplier_id: Number(header.supplier_id),
           site_id: Number(header.site_id),
+          warehouse_id: Number(header.warehouse_id),
+          purchase_order_id: null,
           goods_receipt_id: null,
-          status: "draft",
+          supplier_invoice_ref: header.supplier_invoice_ref || null,
+          amount_ht: Number(amountHt),
+          amount_tva: Number(amountTva),
+          amount_ttc: Number(amountTtc),
           invoice_date: new Date().toISOString(),
           due_date: header.due_date || null,
           notes: header.notes || "",
@@ -496,11 +478,13 @@ export default function PurchasePOS() {
           })),
         };
 
-        const res = await api.post("/supplier-invoices", payload);
+        const res = await api.post("/purchase-documents/invoice", payload);
+
         const invoiceNumber =
           res.data?.data?.invoice_number ||
           res.data?.invoice_number ||
-          payload.invoice_number;
+          "Facture créée";
+
         toast.success(`Facture créée : ${invoiceNumber}`);
       }
 
@@ -616,14 +600,21 @@ export default function PurchasePOS() {
 
         {header.document_mode === "bc" && (
           <div className="mt-3 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
-            Pour un BC, le dépôt ne sera pas enregistré sur le document. Le BR utilisera le
-            dépôt par défaut du site ou le premier dépôt disponible.
+            Pour un BC, le dépôt sélectionné sera mémorisé et repris au moment de la
+            conversion en BR.
           </div>
         )}
 
         {header.document_mode === "br_direct" && (
           <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-700">
             Pour un BR direct, le dépôt est obligatoire.
+          </div>
+        )}
+
+        {header.document_mode === "facture_direct" && (
+          <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700">
+            Pour une facture directe, le dépôt et les lignes produits seront transmis pour
+            alimenter correctement le stock.
           </div>
         )}
       </div>
