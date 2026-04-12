@@ -332,30 +332,22 @@ export default function PurchaseDocuments() {
     });
   }, [documents, tab, filters]);
 
-  const isDirectBr =
-    selectedDoc?.doc_type === "BR" &&
-    String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
+const isDirectBr =
+  selectedDoc?.doc_type === "BR" &&
+  String(selectedDoc?.source_type || "").toLowerCase() === "purchase_pos_direct";
 
-  const isAlreadyStockedBr =
-    selectedDoc?.doc_type === "BR" && !!selectedDoc?.stock_applied_at;
+const isAlreadyStockedBr =
+  selectedDoc?.doc_type === "BR" && !!selectedDoc?.stock_applied_at;
 
-  const canEditBc =
-    selectedDoc?.doc_type === "BC" &&
-    !selectedDoc?.generated_goods_receipt_id &&
-    ["security_verified", "stock_validated"].includes(selectedDoc?.workflow_status);
+const canVerifyBr =
+  selectedDoc?.doc_type === "BR" &&
+  !isAlreadyStockedBr &&
+  !selectedDoc?.manager_verified_at;
 
-  const canValidateBcToBr = canEditBc;
-
-  const canVerifyBr =
-    selectedDoc?.doc_type === "BR" &&
-    !isDirectBr &&
-    !isAlreadyStockedBr &&
-    !selectedDoc?.manager_verified_at;
-
-  const canInvoiceBr =
-    selectedDoc?.doc_type === "BR" &&
-    !selectedDoc?.invoiced_at &&
-    (!!selectedDoc?.manager_verified_at || isDirectBr || isAlreadyStockedBr);
+const canInvoiceBr =
+  selectedDoc?.doc_type === "BR" &&
+  !selectedDoc?.invoiced_at &&
+  !!selectedDoc?.manager_verified_at;
 
   const updateBcLine = (lineId, field, value) => {
     setSelectedDoc((prev) => {
@@ -765,13 +757,17 @@ export default function PurchaseDocuments() {
                   </div>
                 </div>
 
-                {selectedDoc.doc_type === "BR" && isDirectBr && (
-                  <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
-                    Ce BR direct a déjà été intégré au stock au moment de sa création.
-                    Aucune validation supplémentaire n’est nécessaire.
+                {selectedDoc.doc_type === "BR" && isDirectBr && !selectedDoc?.manager_verified_at && (
+                  <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
+                    Ce BR direct a été créé, mais l’entrée en stock ne sera faite qu’après validation responsable.
                   </div>
                 )}
 
+                {selectedDoc.doc_type === "BR" && isDirectBr && selectedDoc?.manager_verified_at && (
+                  <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
+                    Ce BR direct a été validé et intégré au stock.
+                  </div>
+                )}
                 {selectedDoc.qr_token && (
                   <div className="rounded-2xl bg-slate-50 p-5">
                     <div className="mb-3 text-lg font-semibold text-slate-800">
