@@ -65,12 +65,12 @@ const MENU_GROUPS = [
       {
         key: "stock",
         label: "Stock",
-        roles: ["pdg", "admin", "stock"],
+        roles: ["pdg", "admin", "stock", "cuisine"],
       },
       {
         key: "stockLosses",
         label: "Pertes",
-        roles: ["pdg", "admin", "stock", "cuisine", "controle"],
+        roles: ["pdg", "admin", "stock", "controle"],
       },
       {
         key: "stockInventories",
@@ -89,22 +89,22 @@ const MENU_GROUPS = [
       {
         key: "newProduction",
         label: "Fabrication",
-        roles: ["pdg", "admin", "cuisine"],
+        roles: ["pdg", "admin"],
       },
       {
         key: "productionActions",
         label: "Actions fabrication",
-        roles: ["pdg", "admin", "cuisine"],
+        roles: ["pdg", "admin"],
       },
       {
         key: "ProductionLive",
         label: "Fabrication en live",
-        roles: ["pdg", "admin", "stock", "cuisine", "controle"],
+        roles: ["pdg", "admin", "stock", "controle"],
       },
       {
         key: "recipes",
         label: "Fiches techniques",
-        roles: ["pdg", "admin", "cuisine", "stock"],
+        roles: ["pdg", "admin", "stock"],
       },
       {
         key: "kitchenIssues",
@@ -119,7 +119,7 @@ const MENU_GROUPS = [
       {
         key: "kitchenConsumptionScanMobile",
         label: "Scan Cuisine",
-        roles: ["pdg", "admin", "cuisine", "stock"],
+        roles: ["pdg", "admin", "stock"],
       },
     ],
   },
@@ -148,7 +148,7 @@ const MENU_GROUPS = [
       {
         key: "purchaseDocumentScanMobile",
         label: "Scan Docs Achats",
-        roles: ["pdg", "admin", "stock", "securite", "achat"],
+        roles: ["pdg", "admin", "stock", "achat"],
       },
     ],
   },
@@ -206,7 +206,7 @@ const MENU_GROUPS = [
       {
         key: "units",
         label: "Unités",
-        roles: ["pdg", "admin", "stock", "cuisine"],
+        roles: ["pdg", "admin", "stock"],
       },
     ],
   },
