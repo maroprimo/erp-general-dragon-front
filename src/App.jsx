@@ -43,6 +43,57 @@ import KitchenConsumptionScanMobile from "./pages/KitchenConsumptionScanMobile";
 import KitchenIssues from "./pages/KitchenIssues";
 import KitchenIssueScanMobile from "./pages/KitchenIssueScanMobile";
 
+const PAGE_ACCESS = {
+  dashboard: ["pdg", "admin"],
+  stockDashboardSite: ["pdg", "admin", "stock", "controle"],
+  stockDashboardGlobal: ["pdg"],
+
+  stock: ["pdg", "admin", "stock"],
+  stockLosses: ["pdg", "admin", "stock", "cuisine", "controle"],
+  stockInventories: ["pdg", "admin", "stock", "controle"],
+
+  ProductionLive: ["pdg", "admin", "stock", "cuisine", "controle"],
+  newProduction: ["pdg", "admin", "cuisine"],
+  productionActions: ["pdg", "admin", "cuisine"],
+  productionFinish: ["pdg", "admin", "cuisine"],
+  recipes: ["pdg", "admin", "cuisine", "stock"],
+  kitchenIssues: ["pdg", "admin", "cuisine", "stock"],
+  kitchenIssueScanMobile: ["pdg", "admin", "cuisine", "stock"],
+  kitchenConsumptionScanMobile: ["pdg", "admin", "cuisine", "stock"],
+
+  purchasePOS: ["pdg", "admin", "achat", "stock"],
+  purchaseDocuments: ["pdg", "admin", "achat", "stock"],
+  purchaseDocumentScanMobile: ["pdg", "admin", "stock", "securite", "achat"],
+  purchases: ["pdg", "admin", "achat", "stock"],
+  newPurchase: ["pdg", "admin", "achat", "stock"],
+  receivePurchase: ["pdg", "admin", "achat", "stock"],
+  suppliers: ["pdg", "admin", "achat", "stock"],
+
+  transfers: ["pdg", "admin", "stock"],
+  newTransfer: ["pdg", "admin", "stock"],
+  transferValidation: ["pdg", "admin", "stock", "controle"],
+  interSiteRequests: ["pdg", "admin", "stock", "controle"],
+  transferScanMobile: ["pdg", "admin", "stock", "controle", "chauffeur", "securite"],
+  transferTrackingDashboard: ["pdg", "admin", "stock", "controle", "logistique"],
+
+  productsCatalog: ["pdg", "admin", "stock", "achat"],
+  sites: ["pdg"],
+  warehouses: ["pdg", "admin", "stock"],
+  storageZones: ["pdg", "admin", "stock"],
+  units: ["pdg", "admin", "stock", "cuisine"],
+
+  users: ["pdg"],
+  profile: ["pdg", "admin", "stock", "achat"],
+  auditLogs: ["pdg"],
+
+  finance: ["pdg"],
+  financeAI: ["pdg"],
+  analytics: ["pdg"],
+
+  ia: ["pdg", "admin"],
+  aiActions: ["pdg", "admin"],
+};
+
 const SCAN_PAGES = new Set([
   "transferScanMobile",
   "purchaseDocumentScanMobile",
@@ -50,68 +101,92 @@ const SCAN_PAGES = new Set([
   "kitchenIssueScanMobile",
 ]);
 
-function getPageFromUrl() {
+const DEFAULT_PAGE_BY_ROLE = {
+  pdg: "stockDashboardGlobal",
+  admin: "stockDashboardSite",
+  stock: "stockDashboardSite",
+  controle: "stockDashboardSite",
+  cuisine: "newProduction",
+  achat: "purchasePOS",
+  securite: "transferScanMobile",
+  chauffeur: "transferScanMobile",
+  logistique: "transferTrackingDashboard",
+};
+
+function getDefaultPageForRole(role) {
+  return DEFAULT_PAGE_BY_ROLE[role] || "profile";
+}
+
+function isPageAllowedForRole(page, role) {
+  const allowedRoles = PAGE_ACCESS[page];
+  if (!allowedRoles) return false;
+  return allowedRoles.includes(role);
+}
+
+function getRequestedPageFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  return (
-    params.get("page") ||
-    params.get("open_page") ||
-    "stockDashboardSite"
-  );
+  return params.get("page") || params.get("open_page") || null;
 }
 
 export default function App() {
   const { isAuthenticated, loading, logout, user } = useAuth();
-  const [page, setPage] = useState(getPageFromUrl);
-
-  useEffect(() => {
-    const syncFromUrl = () => {
-      const nextPage = getPageFromUrl();
-      if (nextPage) {
-        setPage(nextPage);
-      }
-    };
-
-    syncFromUrl();
-    window.addEventListener("popstate", syncFromUrl);
-
-    return () => {
-      window.removeEventListener("popstate", syncFromUrl);
-    };
-  }, []);
+  const [page, setPage] = useState(null);
 
   useEffect(() => {
     const handler = (event) => {
       const detail = event.detail;
-
       if (!detail) return;
 
       if (typeof detail === "string") {
-        setPage(detail);
+        if (user?.role && isPageAllowedForRole(detail, user.role)) {
+          setPage(detail);
+        } else if (user?.role) {
+          setPage(getDefaultPageForRole(user.role));
+        }
         return;
       }
 
       if (typeof detail === "object" && detail.page) {
+        const targetPage =
+          user?.role && isPageAllowedForRole(detail.page, user.role)
+            ? detail.page
+            : getDefaultPageForRole(user?.role);
+
         const params = new URLSearchParams(window.location.search);
-        params.set("page", detail.page);
+        params.set("page", targetPage);
         params.delete("open_page");
 
         if (detail.scan_token) {
           params.set("scan_token", detail.scan_token);
-        } else if (!SCAN_PAGES.has(detail.page)) {
+        } else if (!SCAN_PAGES.has(targetPage)) {
           params.delete("scan_token");
         }
 
         const nextUrl = `${window.location.pathname}?${params.toString()}`;
         window.history.replaceState({}, "", nextUrl);
-        setPage(detail.page);
+        setPage(targetPage);
       }
     };
 
     window.addEventListener("open-page", handler);
     return () => window.removeEventListener("open-page", handler);
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user?.role) return;
+
+    const requestedPage = getRequestedPageFromUrl();
+    const safePage =
+      requestedPage && isPageAllowedForRole(requestedPage, user.role)
+        ? requestedPage
+        : getDefaultPageForRole(user.role);
+
+    setPage(safePage);
+  }, [user]);
+
+  useEffect(() => {
+    if (!page) return;
+
     const params = new URLSearchParams(window.location.search);
     params.set("page", page);
     params.delete("open_page");
@@ -128,6 +203,23 @@ export default function App() {
       window.history.replaceState({}, "", nextUrl);
     }
   }, [page]);
+
+  useEffect(() => {
+    const syncFromUrl = () => {
+      if (!user?.role) return;
+
+      const requestedPage = getRequestedPageFromUrl();
+      const safePage =
+        requestedPage && isPageAllowedForRole(requestedPage, user.role)
+          ? requestedPage
+          : getDefaultPageForRole(user.role);
+
+      setPage(safePage);
+    };
+
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, [user]);
 
   function renderPage() {
     if (page === "dashboard") return <Dashboard />;
@@ -179,10 +271,10 @@ export default function App() {
     if (page === "ia") return <AIAssistant />;
     if (page === "aiActions") return <AIActions />;
 
-    return <StockDashboardSite />;
+    return <Profile />;
   }
 
-  if (loading) {
+  if (loading || (isAuthenticated && !page)) {
     return <div className="p-6">Chargement...</div>;
   }
 

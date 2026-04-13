@@ -46,7 +46,7 @@ const MENU_GROUPS = [
       {
         key: "stockDashboardSite",
         label: "Dashboard Site",
-        roles: ["pdg", "admin", "stock", "cuisine", "controle"],
+        roles: ["pdg", "admin", "stock", "controle"],
       },
       {
         key: "stockDashboardGlobal",
@@ -505,7 +505,9 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
                     </p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">Site : {siteName}</span>
+                      <span className="font-semibold text-slate-700">
+                        Site : {siteName}
+                      </span>
                       <span className="hidden sm:inline">•</span>
                       <span>
                         Utilisateur : {user?.name || user?.email} ({user?.role})
