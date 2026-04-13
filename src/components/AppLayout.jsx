@@ -196,7 +196,7 @@ const MENU_GROUPS = [
       {
         key: "warehouses",
         label: "Dépôts",
-        roles: ["pdg", "admin", "stock"],
+        roles: ["pdg", "admin"],
       },
       {
         key: "storageZones",
@@ -206,7 +206,7 @@ const MENU_GROUPS = [
       {
         key: "units",
         label: "Unités",
-        roles: ["pdg", "admin", "stock"],
+        roles: ["pdg", "admin"],
       },
     ],
   },

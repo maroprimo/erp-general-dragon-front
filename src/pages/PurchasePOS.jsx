@@ -11,20 +11,6 @@ function asArray(payload) {
   return [];
 }
 
-function generateDocumentNumber(prefix) {
-  const now = new Date();
-
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mi = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
-  const rand = Math.floor(100 + Math.random() * 900);
-
-  return `${prefix}-${yyyy}${mm}${dd}-${hh}${mi}${ss}-${rand}`;
-}
-
 function QuickProductModal({ open, onClose, categories, units, onCreated }) {
   const [form, setForm] = useState({
     code: "",
@@ -188,6 +174,7 @@ function QuickProductModal({ open, onClose, categories, units, onCreated }) {
 
 export default function PurchasePOS() {
   const { user } = useAuth();
+  const isStockSiteUser = user?.role === "stock";
 
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
@@ -216,16 +203,24 @@ export default function PurchasePOS() {
     document_mode: "bc",
   });
 
+  const visibleSites = useMemo(() => {
+    if (isStockSiteUser) {
+      return (sites ?? []).filter((s) => Number(s.id) === Number(user?.site_id));
+    }
+    return sites ?? [];
+  }, [sites, isStockSiteUser, user]);
+
   const currentSite = useMemo(() => {
-    return sites.find((s) => Number(s.id) === Number(header.site_id)) || null;
+    return (sites ?? []).find((s) => Number(s.id) === Number(header.site_id)) || null;
   }, [sites, header.site_id]);
 
   const siteWarehouses = useMemo(() => {
-    if (!header.site_id) return warehouses;
-    return warehouses.filter(
-      (warehouse) => Number(warehouse.site_id) === Number(header.site_id)
+    const effectiveSiteId = header.site_id || user?.site_id || "";
+    if (!effectiveSiteId) return [];
+    return (warehouses ?? []).filter(
+      (warehouse) => Number(warehouse.site_id) === Number(effectiveSiteId)
     );
-  }, [warehouses, header.site_id]);
+  }, [warehouses, header.site_id, user]);
 
   const totalAmount = useMemo(() => {
     return cart.reduce((sum, line) => {
@@ -314,7 +309,16 @@ export default function PurchasePOS() {
   }, [selectedCategory, search]);
 
   useEffect(() => {
-    if (!header.site_id) return;
+    if (!isStockSiteUser || !user?.site_id) return;
+
+    setHeader((prev) => ({
+      ...prev,
+      site_id: String(user.site_id),
+    }));
+  }, [isStockSiteUser, user]);
+
+  useEffect(() => {
+    if (!header.site_id && !user?.site_id) return;
 
     const stillValid = siteWarehouses.some(
       (warehouse) => Number(warehouse.id) === Number(header.warehouse_id)
@@ -333,7 +337,7 @@ export default function PurchasePOS() {
         warehouse_id: fallbackWarehouse?.id ? String(fallbackWarehouse.id) : "",
       }));
     }
-  }, [header.site_id, siteWarehouses, currentSite]);
+  }, [header.site_id, header.warehouse_id, siteWarehouses, currentSite, user]);
 
   const addToCart = (product) => {
     const exists = cart.find((line) => line.product_id === product.id);
@@ -528,12 +532,19 @@ export default function PurchasePOS() {
           </select>
 
           <select
-            className="rounded-xl border p-3"
+            className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
             value={header.site_id}
-            onChange={(e) => setHeader((p) => ({ ...p, site_id: e.target.value }))}
+            disabled={isStockSiteUser}
+            onChange={(e) =>
+              setHeader((p) => ({
+                ...p,
+                site_id: e.target.value,
+                warehouse_id: "",
+              }))
+            }
           >
             <option value="">Site</option>
-            {sites.map((site) => (
+            {visibleSites.map((site) => (
               <option key={site.id} value={site.id}>
                 {site.name}
               </option>
