@@ -109,6 +109,9 @@ export default function KitchenIssues() {
   const { user } = useAuth();
   const { sites, warehouses, products, loading: refsLoading } = useReferences();
 
+  const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
+  const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
+
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -133,24 +136,44 @@ export default function KitchenIssues() {
 
   const isEditing = editingId !== null;
 
+  const visibleSites = useMemo(() => {
+    if (isRestrictedSiteUser) {
+      return (sites ?? []).filter((s) => Number(s.id) === Number(restrictedSiteId));
+    }
+    return sites ?? [];
+  }, [sites, isRestrictedSiteUser, restrictedSiteId]);
+
+  const effectiveFormSiteId = form.site_id || (isRestrictedSiteUser ? restrictedSiteId : "");
+
   const currentSiteWarehouses = useMemo(() => {
-    if (!form.site_id) return warehouses ?? [];
+    if (!effectiveFormSiteId) return warehouses ?? [];
     return (warehouses ?? []).filter(
-      (w) => Number(w.site_id) === Number(form.site_id)
+      (w) => Number(w.site_id) === Number(effectiveFormSiteId)
     );
-  }, [warehouses, form.site_id]);
+  }, [warehouses, effectiveFormSiteId]);
+
+  const visibleIssues = useMemo(() => {
+    if (!isRestrictedSiteUser || !restrictedSiteId) return issues;
+    return issues.filter(
+      (issue) => Number(issue.site_id) === Number(restrictedSiteId)
+    );
+  }, [issues, isRestrictedSiteUser, restrictedSiteId]);
 
   const selectedIssue = useMemo(() => {
-    return issues.find((item) => Number(item.id) === Number(selectedId)) || null;
-  }, [issues, selectedId]);
+    return visibleIssues.find((item) => Number(item.id) === Number(selectedId)) || null;
+  }, [visibleIssues, selectedId]);
 
   const filteredIssues = useMemo(() => {
-    return issues.filter((issue) => {
+    const effectiveFilterSiteId = isRestrictedSiteUser
+      ? restrictedSiteId
+      : filters.site_id;
+
+    return visibleIssues.filter((issue) => {
       const fromWarehouse = getFromWarehouse(issue);
       const toWarehouse = getToWarehouse(issue);
 
-      const siteOk = filters.site_id
-        ? Number(issue.site_id) === Number(filters.site_id)
+      const siteOk = effectiveFilterSiteId
+        ? Number(issue.site_id) === Number(effectiveFilterSiteId)
         : true;
 
       const statusOk = filters.status ? issue.status === filters.status : true;
@@ -174,7 +197,7 @@ export default function KitchenIssues() {
 
       return siteOk && statusOk && searchOk;
     });
-  }, [issues, filters]);
+  }, [visibleIssues, filters, isRestrictedSiteUser, restrictedSiteId]);
 
   const loadIssues = async () => {
     try {
@@ -182,15 +205,6 @@ export default function KitchenIssues() {
       const res = await api.get("/kitchen-issues");
       const rows = asArray(res.data);
       setIssues(rows);
-
-      if (!selectedId && rows.length > 0) {
-        setSelectedId(rows[0].id);
-      } else if (selectedId) {
-        const exists = rows.some((item) => Number(item.id) === Number(selectedId));
-        if (!exists) {
-          setSelectedId(rows[0]?.id ?? null);
-        }
-      }
     } catch (err) {
       console.error(err);
       toast.error("Impossible de charger les BSC");
@@ -204,49 +218,74 @@ export default function KitchenIssues() {
   }, []);
 
   useEffect(() => {
-    if (refsLoading) return;
+    if (!selectedId && filteredIssues.length > 0) {
+      setSelectedId(filteredIssues[0].id);
+      return;
+    }
 
-    if (!form.site_id) {
-      const preferredSite =
-        (sites ?? []).find((s) => Number(s.id) === Number(user?.site_id)) ||
-        (sites ?? []).find((s) => s.is_default) ||
-        (sites ?? [])[0] ||
-        null;
-
-      if (preferredSite) {
-        const siteWarehouses = (warehouses ?? []).filter(
-          (w) => Number(w.site_id) === Number(preferredSite.id)
-        );
-
-        setForm((prev) => ({
-          ...prev,
-          site_id: String(preferredSite.id),
-          from_warehouse_id:
-            prev.from_warehouse_id ||
-            (siteWarehouses[0]?.id ? String(siteWarehouses[0].id) : ""),
-          to_warehouse_id:
-            prev.to_warehouse_id ||
-            (siteWarehouses[1]?.id
-              ? String(siteWarehouses[1].id)
-              : siteWarehouses[0]?.id
-              ? String(siteWarehouses[0].id)
-              : ""),
-        }));
-
-        setFilters((prev) => ({
-          ...prev,
-          site_id:
-            prev.site_id || (preferredSite.id ? String(preferredSite.id) : ""),
-        }));
+    if (selectedId) {
+      const exists = filteredIssues.some(
+        (item) => Number(item.id) === Number(selectedId)
+      );
+      if (!exists) {
+        setSelectedId(filteredIssues[0]?.id ?? null);
       }
     }
-  }, [refsLoading, sites, warehouses, user, form.site_id]);
+  }, [filteredIssues, selectedId]);
 
   useEffect(() => {
-    if (!form.site_id) return;
+    if (refsLoading) return;
+
+    const preferredSite =
+      (sites ?? []).find((s) => Number(s.id) === Number(user?.site_id)) ||
+      (sites ?? []).find((s) => s.is_default) ||
+      (sites ?? [])[0] ||
+      null;
+
+    if (!preferredSite) return;
+
+    const siteIdToUse = isRestrictedSiteUser
+      ? String(preferredSite.id)
+      : form.site_id || String(preferredSite.id);
+
+    const siteWarehouses = (warehouses ?? []).filter(
+      (w) => Number(w.site_id) === Number(siteIdToUse)
+    );
+
+    setForm((prev) => ({
+      ...prev,
+      site_id: siteIdToUse,
+      from_warehouse_id:
+        prev.from_warehouse_id &&
+        siteWarehouses.some((w) => Number(w.id) === Number(prev.from_warehouse_id))
+          ? prev.from_warehouse_id
+          : siteWarehouses[0]?.id
+          ? String(siteWarehouses[0].id)
+          : "",
+      to_warehouse_id:
+        prev.to_warehouse_id &&
+        siteWarehouses.some((w) => Number(w.id) === Number(prev.to_warehouse_id))
+          ? prev.to_warehouse_id
+          : siteWarehouses[1]?.id
+          ? String(siteWarehouses[1].id)
+          : siteWarehouses[0]?.id
+          ? String(siteWarehouses[0].id)
+          : "",
+    }));
+
+    setFilters((prev) => ({
+      ...prev,
+      site_id: isRestrictedSiteUser
+        ? String(preferredSite.id)
+        : prev.site_id || String(preferredSite.id),
+    }));
+  }, [refsLoading, sites, warehouses, user, isRestrictedSiteUser, form.site_id]);
+
+  useEffect(() => {
+    if (!effectiveFormSiteId) return;
 
     const sameSiteWarehouses = (warehouses ?? []).filter(
-      (w) => Number(w.site_id) === Number(form.site_id)
+      (w) => Number(w.site_id) === Number(effectiveFormSiteId)
     );
 
     const fromValid = sameSiteWarehouses.some(
@@ -258,6 +297,7 @@ export default function KitchenIssues() {
 
     setForm((prev) => ({
       ...prev,
+      site_id: isRestrictedSiteUser ? restrictedSiteId : prev.site_id,
       from_warehouse_id: fromValid
         ? prev.from_warehouse_id
         : sameSiteWarehouses[0]?.id
@@ -271,7 +311,14 @@ export default function KitchenIssues() {
         ? String(sameSiteWarehouses[0].id)
         : "",
     }));
-  }, [form.site_id, warehouses]);
+  }, [
+    effectiveFormSiteId,
+    warehouses,
+    form.from_warehouse_id,
+    form.to_warehouse_id,
+    isRestrictedSiteUser,
+    restrictedSiteId,
+  ]);
 
   const resetForm = () => {
     const preferredSite =
@@ -280,13 +327,14 @@ export default function KitchenIssues() {
       (sites ?? [])[0] ||
       null;
 
+    const siteIdToUse = preferredSite?.id ? String(preferredSite.id) : "";
     const siteWarehouses = (warehouses ?? []).filter(
-      (w) => Number(w.site_id) === Number(preferredSite?.id)
+      (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
     setEditingId(null);
     setForm({
-      site_id: preferredSite?.id ? String(preferredSite.id) : "",
+      site_id: isRestrictedSiteUser ? restrictedSiteId : siteIdToUse,
       from_warehouse_id: siteWarehouses[0]?.id ? String(siteWarehouses[0].id) : "",
       to_warehouse_id: siteWarehouses[1]?.id
         ? String(siteWarehouses[1].id)
@@ -304,10 +352,23 @@ export default function KitchenIssues() {
       return;
     }
 
+    if (
+      isRestrictedSiteUser &&
+      restrictedSiteId &&
+      Number(issue.site_id) !== Number(restrictedSiteId)
+    ) {
+      toast.error("Accès refusé pour un autre site.");
+      return;
+    }
+
     setEditingId(issue.id);
     setSelectedId(issue.id);
     setForm({
-      site_id: issue.site_id ? String(issue.site_id) : "",
+      site_id: isRestrictedSiteUser
+        ? restrictedSiteId
+        : issue.site_id
+        ? String(issue.site_id)
+        : "",
       from_warehouse_id: issue.from_warehouse_id
         ? String(issue.from_warehouse_id)
         : "",
@@ -378,7 +439,7 @@ export default function KitchenIssues() {
       setSubmitting(true);
 
       const payload = {
-        site_id: Number(form.site_id),
+        site_id: Number(isRestrictedSiteUser ? restrictedSiteId : form.site_id),
         from_warehouse_id: Number(form.from_warehouse_id),
         to_warehouse_id: Number(form.to_warehouse_id),
         notes: form.notes || "",
@@ -490,6 +551,11 @@ export default function KitchenIssues() {
               <p className="mt-1 text-sm text-slate-500">
                 Demande de sortie interne du dépôt principal vers le dépôt cuisine.
               </p>
+              {isRestrictedSiteUser && (
+                <p className="mt-1 text-xs text-slate-400">
+                  Affichage limité au site d’affectation.
+                </p>
+              )}
             </div>
 
             {isEditing && (
@@ -506,14 +572,20 @@ export default function KitchenIssues() {
           <form onSubmit={submit} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <select
-                className="rounded-xl border p-3"
+                className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
                 value={form.site_id}
+                disabled={isRestrictedSiteUser}
                 onChange={(e) =>
-                  setForm((prev) => ({ ...prev, site_id: e.target.value }))
+                  setForm((prev) => ({
+                    ...prev,
+                    site_id: e.target.value,
+                    from_warehouse_id: "",
+                    to_warehouse_id: "",
+                  }))
                 }
               >
                 <option value="">Choisir un site</option>
-                {(sites ?? []).map((site) => (
+                {visibleSites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}
                   </option>
@@ -696,14 +768,15 @@ export default function KitchenIssues() {
 
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <select
-              className="rounded-xl border p-3"
+              className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
               value={filters.site_id}
+              disabled={isRestrictedSiteUser}
               onChange={(e) =>
                 setFilters((prev) => ({ ...prev, site_id: e.target.value }))
               }
             >
-              <option value="">Tous les sites</option>
-              {(sites ?? []).map((site) => (
+              {!isRestrictedSiteUser && <option value="">Tous les sites</option>}
+              {visibleSites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name}
                 </option>
@@ -974,7 +1047,9 @@ export default function KitchenIssues() {
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
-                                onClick={() => window.open(buildPrintUrl(selectedIssue), "_blank")}
+                                onClick={() =>
+                                  window.open(buildPrintUrl(selectedIssue), "_blank")
+                                }
                                 className="rounded-xl bg-slate-900 px-4 py-2 text-white"
                               >
                                 Imprimer
@@ -982,7 +1057,9 @@ export default function KitchenIssues() {
 
                               <button
                                 type="button"
-                                onClick={() => window.open(buildScanUrl(selectedIssue), "_blank")}
+                                onClick={() =>
+                                  window.open(buildScanUrl(selectedIssue), "_blank")
+                                }
                                 className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
                               >
                                 Ouvrir scan

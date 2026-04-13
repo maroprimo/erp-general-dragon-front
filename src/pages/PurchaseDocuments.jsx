@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
+import { useAuth } from "../context/AuthContext";
 
 const INVOICE_ENDPOINT = "/supplier-invoices";
 
@@ -97,8 +98,6 @@ function normalizePurchaseOrders(items = []) {
   return items
     .filter((doc) => {
       const source = String(doc?.source || "").trim().toLowerCase();
-
-      // On masque le PO technique généré pour un BR direct
       return source !== "purchase_pos_br_direct";
     })
     .map((doc) => ({
@@ -116,7 +115,9 @@ function normalizePurchaseOrders(items = []) {
       stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
       supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
       site_name: doc.site?.name || "-",
+      site_id: doc.site?.id ?? doc.site_id ?? null,
       warehouse_name: doc.warehouse?.name || "-",
+      warehouse_id: doc.warehouse?.id ?? doc.warehouse_id ?? null,
       total_price: doc.total_price ?? doc.total_amount ?? null,
       notes: doc.notes || "",
       validated_to_br_at: doc.validated_to_br_at || null,
@@ -155,7 +156,9 @@ function normalizeGoodsReceipts(items = []) {
       doc.purchaseOrder?.supplier?.name ||
       "-",
     site_name: doc.site?.name || "-",
+    site_id: doc.site?.id ?? doc.site_id ?? null,
     warehouse_name: doc.warehouse?.name || "-",
+    warehouse_id: doc.warehouse?.id ?? doc.warehouse_id ?? null,
     total_price: doc.total_price ?? null,
     notes: doc.notes || "",
     lines: doc.lines || [],
@@ -179,7 +182,19 @@ function normalizeInvoices(items = []) {
     stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
     supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
     site_name: doc.site?.name || doc.goodsReceipt?.site?.name || "-",
+    site_id:
+      doc.site?.id ??
+      doc.site_id ??
+      doc.goodsReceipt?.site?.id ??
+      doc.goodsReceipt?.site_id ??
+      null,
     warehouse_name: doc.goodsReceipt?.warehouse?.name || doc.warehouse?.name || "-",
+    warehouse_id:
+      doc.goodsReceipt?.warehouse?.id ??
+      doc.goodsReceipt?.warehouse_id ??
+      doc.warehouse?.id ??
+      doc.warehouse_id ??
+      null,
     total_price: doc.amount_ttc ?? doc.total_price ?? null,
     notes: doc.notes || "",
     goods_receipt: doc.goods_receipt || doc.goodsReceipt || null,
@@ -203,6 +218,9 @@ function computeLineUnitPrice(line) {
 }
 
 export default function PurchaseDocuments() {
+  const { user } = useAuth();
+  const isStockSiteUser = user?.role === "stock";
+
   const [documents, setDocuments] = useState([]);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -246,11 +264,19 @@ export default function PurchaseDocuments() {
       if (grRes.status === "rejected") console.error("Erreur BR:", grRes.reason);
       if (invRes.status === "rejected") console.error("Erreur Factures:", invRes.reason);
 
-      const normalized = [
+      let normalized = [
         ...normalizePurchaseOrders(purchaseOrders),
         ...normalizeGoodsReceipts(goodsReceipts),
         ...normalizeInvoices(invoices),
-      ].sort((a, b) => {
+      ];
+
+      if (isStockSiteUser && user?.site_id) {
+        normalized = normalized.filter(
+          (doc) => Number(doc.site_id) === Number(user.site_id)
+        );
+      }
+
+      normalized = normalized.sort((a, b) => {
         const da = a.doc_date ? new Date(a.doc_date).getTime() : 0;
         const db = b.doc_date ? new Date(b.doc_date).getTime() : 0;
         return db - da;
@@ -284,7 +310,7 @@ export default function PurchaseDocuments() {
   useEffect(() => {
     refreshDocuments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.role, user?.site_id]);
 
   const stats = useMemo(() => {
     return {
@@ -473,6 +499,11 @@ export default function PurchaseDocuments() {
           <p className="text-slate-500">
             Workflow final BC → BR → Facture avec QR, impression et validations.
           </p>
+          {isStockSiteUser && user?.site_id && (
+            <p className="mt-1 text-xs text-slate-400">
+              Affichage limité aux documents de votre site.
+            </p>
+          )}
         </div>
 
         <button
@@ -740,17 +771,21 @@ export default function PurchaseDocuments() {
                   </div>
                 </div>
 
-                {selectedDoc.doc_type === "BR" && isDirectBr && !selectedDoc?.manager_verified_at && (
-                  <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
-                    Ce BR direct doit être validé via “Ouvrir scan” avant intégration au stock.
-                  </div>
-                )}
+                {selectedDoc.doc_type === "BR" &&
+                  isDirectBr &&
+                  !selectedDoc?.manager_verified_at && (
+                    <div className="rounded-xl bg-amber-50 p-4 text-sm text-amber-700">
+                      Ce BR direct doit être validé via “Ouvrir scan” avant intégration au stock.
+                    </div>
+                  )}
 
-                {selectedDoc.doc_type === "BR" && isDirectBr && selectedDoc?.manager_verified_at && (
-                  <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
-                    Ce BR direct a été validé et intégré au stock.
-                  </div>
-                )}
+                {selectedDoc.doc_type === "BR" &&
+                  isDirectBr &&
+                  selectedDoc?.manager_verified_at && (
+                    <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-700">
+                      Ce BR direct a été validé et intégré au stock.
+                    </div>
+                  )}
 
                 {selectedDoc.qr_token && (
                   <div className="rounded-2xl bg-slate-50 p-5">
