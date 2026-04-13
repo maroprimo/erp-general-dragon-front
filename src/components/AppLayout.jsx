@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 
+
+// 1. SEULE cette fonction peut être à l'extérieur (car elle est "pure")
+function buildLogoUrl(path) {
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return `https://stock.dragonroyalmg.com/uploads/${path}`;
+}
+
 export default function AppLayout({ user, logout, page, setPage, children }) {
   const [stockAlertCount, setStockAlertCount] = useState(0);
   const [pendingTransferCount, setPendingTransferCount] = useState(0);
   const [siteName, setSiteName] = useState("Chargement...");
   const [mainSite, setMainSite] = useState(null);
 
-  useEffect(() => {
-
+useEffect(() => {
+    // 1. Charge le site principal (Logo/Nom dans le sidebar)
     const loadMainSite = async () => {
       try {
         const res = await api.get("/sites");
@@ -16,36 +24,53 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
         const defaultSite = allSites.find((s) => s.is_default) || allSites[0] || null;
         setMainSite(defaultSite);
       } catch (err) {
-        console.error(err);
+        console.error("Erreur loadMainSite:", err);
       }
     };
 
+    // 2. Charge les compteurs et le nom du site actuel
     const loadHeaderData = async () => {
       try {
-        const res = await api.get("/inter-site-requests/pending-count");
-        setPendingTransferCount(res.data.count ?? 0);
+        const resCount = await api.get("/inter-site-requests/pending-count");
+        setPendingTransferCount(resCount.data.count ?? 0);
+
+        // On récupère la liste pour éviter l'erreur 405 sur /sites/{id}
+        const resSites = await api.get("/sites");
+        const allSites = resSites.data?.data ?? resSites.data ?? [];
+
+        let siteData = null;
 
         if (user?.site_id) {
-          const resSite = await api.get(`/sites/${user.site_id}`);
-          setSiteName(resSite.data.name || "Site inconnu");
+          // On cherche le site spécifique dans la liste chargée
+          siteData = allSites.find((s) => s.id === user.site_id);
         } else {
-          setSiteName("Tous les sites (Admin)");
+          // Cas Admin : site par défaut
+          siteData = allSites.find((s) => s.is_default) || allSites[0];
+        }
+
+        if (siteData) {
+          setMainSite(siteData); // Met à jour le logo et les infos sidebar
+          setSiteName(siteData.name); // Met à jour le nom dans le header
+        } else {
+          setSiteName(user?.site_id ? "Site inconnu" : "Tous les sites (Admin)");
         }
       } catch (err) {
-        console.error(err);
+        console.error("Erreur loadHeaderData:", err);
         setSiteName("Erreur site");
       }
     };
 
+    // 3. Charge les alertes de stock
     const loadStockAlerts = async () => {
       try {
         const res = await api.get("/dashboard/stock/alert-count");
         setStockAlertCount(res.data.count ?? 0);
       } catch (err) {
-        console.error(err);
+        console.error("Erreur loadStockAlerts:", err);
       }
     };
 
+    // Exécution des fonctions
     loadHeaderData();
     loadStockAlerts();
     loadMainSite();
@@ -92,27 +117,34 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     <div className="flex min-h-screen bg-slate-100">
       <aside className="w-72 bg-slate-900 text-white shadow-xl">
       <div className="border-b border-slate-800 px-6 py-6">
-        <div className="flex items-center gap-3">
-          {mainSite?.logo_url ? (
-            <img
-              src={`https://stock.dragonroyalmg.com${mainSite.logo_url}`}
-              alt={mainSite.name}
-              className="h-12 w-12 rounded-xl object-cover border border-slate-700 bg-white"
-            />
-          ) : (
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-700 text-sm text-white">
-              DR
-            </div>
-          )}
 
-          <div>
-            <h1 className="text-xl font-bold">{mainSite?.name || "General Dragon"}</h1>
-            <p className="mt-1 text-xs text-slate-300">
-              {mainSite?.type_site || "ERP Restaurants"}
-            </p>
+        <div className="flex items-center gap-3">
+        {/* 3. L'affichage du LOGO corrigé */}
+                    {mainSite?.logo_path ? (
+                      <img
+                        src={buildLogoUrl(mainSite.logo_path)}
+                        alt={mainSite.name}
+                        className="h-12 w-12 rounded-xl object-cover border border-slate-700 bg-white"
+                        onError={(e) => {
+                          e.target.src = "https://ui-avatars.com/api/?name=DR";
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-700 text-sm text-white">
+                        DR
+                      </div>
+                    )}
+
+                    <div>
+                        <h1 className="text-xl font-bold text-white">
+                          {mainSite?.name || "Chargement..."}
+                        </h1>
+                        <p className="mt-1 text-xs text-slate-300">
+                          {mainSite?.type_site || "ERP Dragon"}
+                        </p>
+                      </div>
           </div>
         </div>
-      </div>
 
         <nav className="space-y-2 p-4">
           {filteredNav.map((item) => {
@@ -153,7 +185,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
           <div>
-            <h2 className="text-2xl font-bold text-slate-800">ERP General Dragon</h2>
+            <h2 className="text-2xl font-bold text-slate-800">{mainSite?.name || "Chargement..."}</h2>
             <p className="text-sm text-slate-500">
               <span className="font-semibold text-slate-700">Site : {siteName}</span> 
               <span className="mx-2">|</span>
