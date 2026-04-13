@@ -47,7 +47,7 @@ const loadData = async () => {
         // On lance les appels
         const [catRes, locRes, prodRes] = await Promise.all([
             api.get("/references/categories"),
-            api.get("/references/storage-locations"),
+            api.get("/storage-zones"),
             api.get("/products-catalog")
         ]);
 

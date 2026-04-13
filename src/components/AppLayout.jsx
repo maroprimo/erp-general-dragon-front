@@ -11,31 +11,28 @@ function buildAssetUrl(path) {
   if (!path) return "";
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
 
-  // 1. Nettoyer le chemin pour enlever les slashs en double au début
   let clean = path.startsWith("/") ? path : `/${path}`;
 
-  // 2. CORRECTION CRUCIALE : Remplacer /storage/ par /uploads/ 
-  // car votre serveur pointe vers 'public/uploads'
   if (clean.startsWith("/storage/")) {
     clean = clean.replace("/storage/", "/uploads/");
   }
 
-  // 3. Si le chemin commence déjà par /uploads/, on ajoute juste l'URL de base
   if (clean.startsWith("/uploads/")) {
     return `${APP_BASE_URL}${clean}`;
   }
 
-  // 4. Par défaut, on assume que c'est dans /uploads/
   return `${APP_BASE_URL}/uploads${clean}`;
 }
 
 function getInitials(name = "") {
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "DR";
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "DR"
+  );
 }
 
 const MENU_GROUPS = [
@@ -87,7 +84,7 @@ const MENU_GROUPS = [
     label: "Fabrication",
     title: "Fabrication",
     description:
-      "Création, exécution, suivi en temps réel et contrôle des consommations de fabrication.",
+      "Création, exécution, suivi en temps réel, bons de sortie cuisine et contrôle des consommations.",
     items: [
       {
         key: "newProduction",
@@ -107,6 +104,16 @@ const MENU_GROUPS = [
       {
         key: "recipes",
         label: "Fiches techniques",
+        roles: ["pdg", "admin", "cuisine", "stock"],
+      },
+      {
+        key: "kitchenIssues",
+        label: "Bon de Sortie Cuisine",
+        roles: ["pdg", "admin", "cuisine", "stock"],
+      },
+      {
+        key: "kitchenIssueScanMobile",
+        label: "Scan BSC",
         roles: ["pdg", "admin", "cuisine", "stock"],
       },
       {
@@ -281,7 +288,9 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
         if (userSite) {
           setSiteName(userSite.name || "Site inconnu");
         } else {
-          setSiteName(defaultSite?.name ? `Tous les sites · ${defaultSite.name}` : "Tous les sites");
+          setSiteName(
+            defaultSite?.name ? `Tous les sites · ${defaultSite.name}` : "Tous les sites"
+          );
         }
 
         if (pendingRes.status === "fulfilled") {
@@ -317,9 +326,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
 
   const currentItem = useMemo(() => {
     if (!currentGroup) return null;
-    return (
-      currentGroup.items.find((item) => item.key === page) || currentGroup.items[0] || null
-    );
+    return currentGroup.items.find((item) => item.key === page) || currentGroup.items[0] || null;
   }, [currentGroup, page]);
 
   useEffect(() => {
@@ -342,6 +349,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
 
   const handleSubmenuClick = (itemKey) => {
     setPage(itemKey);
+    setMobileMenuOpen(false);
   };
 
   const getGroupBadge = (groupKey) => {
@@ -497,9 +505,7 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
                     </p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">
-                        Site : {siteName}
-                      </span>
+                      <span className="font-semibold text-slate-700">Site : {siteName}</span>
                       <span className="hidden sm:inline">•</span>
                       <span>
                         Utilisateur : {user?.name || user?.email} ({user?.role})

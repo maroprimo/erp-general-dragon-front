@@ -40,12 +40,70 @@ import StorageZones from "./pages/StorageZones";
 import Units from "./pages/Units";
 import PurchaseDocumentScanMobile from "./pages/PurchaseDocumentScanMobile";
 import KitchenConsumptionScanMobile from "./pages/KitchenConsumptionScanMobile";
+import KitchenIssues from "./pages/KitchenIssues";
+import KitchenIssueScanMobile from "./pages/KitchenIssueScanMobile";
+
+const SCAN_PAGES = new Set([
+  "transferScanMobile",
+  "purchaseDocumentScanMobile",
+  "kitchenConsumptionScanMobile",
+  "kitchenIssueScanMobile",
+]);
+
+function getPageFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("page") ||
+    params.get("open_page") ||
+    "stockDashboardSite"
+  );
+}
 
 export default function App() {
+  const { isAuthenticated, loading, logout, user } = useAuth();
+  const [page, setPage] = useState(getPageFromUrl);
+
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const nextPage = getPageFromUrl();
+      if (nextPage) {
+        setPage(nextPage);
+      }
+    };
+
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+
+    return () => {
+      window.removeEventListener("popstate", syncFromUrl);
+    };
+  }, []);
+
   useEffect(() => {
     const handler = (event) => {
-      if (event.detail) {
-        setPage(event.detail);
+      const detail = event.detail;
+
+      if (!detail) return;
+
+      if (typeof detail === "string") {
+        setPage(detail);
+        return;
+      }
+
+      if (typeof detail === "object" && detail.page) {
+        const params = new URLSearchParams(window.location.search);
+        params.set("page", detail.page);
+        params.delete("open_page");
+
+        if (detail.scan_token) {
+          params.set("scan_token", detail.scan_token);
+        } else if (!SCAN_PAGES.has(detail.page)) {
+          params.delete("scan_token");
+        }
+
+        const nextUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, "", nextUrl);
+        setPage(detail.page);
       }
     };
 
@@ -55,15 +113,74 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const openPage = params.get("open_page");
+    params.set("page", page);
+    params.delete("open_page");
 
-    if (openPage) {
-      setPage(openPage);
+    if (!SCAN_PAGES.has(page)) {
+      params.delete("scan_token");
     }
-  }, []);
 
-  const { isAuthenticated, loading, logout, user } = useAuth();
-  const [page, setPage] = useState("dashboard");
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (currentUrl !== nextUrl) {
+      window.history.replaceState({}, "", nextUrl);
+    }
+  }, [page]);
+
+  function renderPage() {
+    if (page === "dashboard") return <Dashboard />;
+    if (page === "stockDashboardSite") return <StockDashboardSite />;
+    if (page === "stockDashboardGlobal") return <StockDashboardGlobal />;
+
+    if (page === "stock") return <Stock />;
+    if (page === "stockLosses") return <StockLosses />;
+    if (page === "stockInventories") return <StockInventories />;
+
+    if (page === "ProductionLive") return <ProductionLive />;
+    if (page === "newProduction") return <NewProductionOrder />;
+    if (page === "productionActions") return <ProductionActions />;
+    if (page === "productionFinish") return <ProductionFinish />;
+    if (page === "recipes") return <Recipes />;
+    if (page === "kitchenIssues") return <KitchenIssues />;
+    if (page === "kitchenIssueScanMobile") return <KitchenIssueScanMobile />;
+    if (page === "kitchenConsumptionScanMobile") return <KitchenConsumptionScanMobile />;
+
+    if (page === "purchasePOS") return <PurchasePOS />;
+    if (page === "purchaseDocuments") return <PurchaseDocuments />;
+    if (page === "purchaseDocumentScanMobile") return <PurchaseDocumentScanMobile />;
+    if (page === "purchases") return <Purchases />;
+    if (page === "newPurchase") return <NewPurchase />;
+    if (page === "receivePurchase") return <ReceivePurchase />;
+    if (page === "suppliers") return <Suppliers />;
+
+    if (page === "transfers") return <Transfers />;
+    if (page === "newTransfer") return <NewTransfer />;
+    if (page === "transferValidation") return <TransferValidation />;
+    if (page === "interSiteRequests") return <InterSiteRequests />;
+    if (page === "transferScanMobile") return <TransferScanMobile />;
+    if (page === "transferTrackingDashboard") return <TransferTrackingDashboard />;
+
+    if (page === "productsCatalog") return <ProductsCatalog />;
+    if (page === "sites") return <Sites />;
+    if (page === "warehouses") return <Warehouses />;
+    if (page === "storageZones") return <StorageZones />;
+    if (page === "units") return <Units />;
+
+    if (page === "users") return <Users />;
+    if (page === "profile") return <Profile />;
+    if (page === "auditLogs") return <AuditLogs />;
+
+    if (page === "finance") return <FinanceDashboard />;
+    if (page === "financeAI") return <FinanceAI />;
+    if (page === "analytics") return <Analytics />;
+
+    if (page === "ia") return <AIAssistant />;
+    if (page === "aiActions") return <AIActions />;
+
+    return <StockDashboardSite />;
+  }
 
   if (loading) {
     return <div className="p-6">Chargement...</div>;
@@ -73,49 +190,9 @@ export default function App() {
     return <Login />;
   }
 
-  let content = <StockDashboardSite />;
-
-  if (page === "stock") content = <Stock />;
-  if (page === "ProductionLive") content = <ProductionLive />; //  Changé "production" en "ProductionLive"
-  if (page === "ia") content = <AIAssistant />;
-  if (page === "purchases") content = <Purchases />;
-  if (page === "transfers") content = <Transfers />;
-  if (page === "newPurchase") content = <NewPurchase />;
-  if (page === "newTransfer") content = <NewTransfer />;
-  if (page === "newProduction") content = <NewProductionOrder />;
-  if (page === "productionActions") content = <ProductionActions />;
-  if (page === "aiActions") content = <AIActions />;
-  if (page === "users") content = <Users />;
-  if (page === "auditLogs") content = <AuditLogs />;
-  if (page === "analytics") content = <Analytics />;
-  if (page === "stockLosses") content = <StockLosses />;
-  if (page === "stockInventories") content = <StockInventories />;
-  if (page === "finance") content = <FinanceDashboard />;
-  if (page === "financeAI") content = <FinanceAI />;
-  if (page === "receivePurchase") content = <ReceivePurchase />;
-  if (page === "productionFinish") content = <ProductionFinish />;
-  if (page === "transferValidation") content = <TransferValidation />;
-  if (page === "suppliers") content = <Suppliers />;
-  if (page === "sites") content = <Sites />;
-  if (page === "recipes") content = <Recipes />;
-  if (page === "purchasePOS") content = <PurchasePOS />;
-  if (page === "interSiteRequests") content = <InterSiteRequests />;
-  if (page === "purchaseDocuments") content = <PurchaseDocuments />;
-  if (page === "stockDashboardSite") content = <StockDashboardSite />;
-  if (page === "stockDashboardGlobal") content = <StockDashboardGlobal />;
-  if (page === "productsCatalog") content = <ProductsCatalog />;
-  if (page === "profile") content = <Profile />;
-  if (page === "transferScanMobile") content = <TransferScanMobile />;
-  if (page === "transferTrackingDashboard") content = <TransferTrackingDashboard />;
-  if (page === "warehouses") content = <Warehouses />;
-  if (page === "storageZones") content = <StorageZones />;
-  if (page === "units") content = <Units />;
-  if (page === "purchaseDocumentScanMobile") content = <PurchaseDocumentScanMobile />;
-  if (page === "kitchenConsumptionScanMobile") content = <KitchenConsumptionScanMobile />;
-  
   return (
     <AppLayout user={user} logout={logout} page={page} setPage={setPage}>
-      {content}
+      {renderPage()}
     </AppLayout>
   );
 }

@@ -155,14 +155,18 @@ export default function InterSiteRequest() {
       if (finalWarehouses.length === 0) {
         const warehouseCandidates = ["/references/warehouses", "/warehouses"];
         for (const url of warehouseCandidates) {
-          try {
-            const res = await api.get(url);
-            const rows = extractCollection(res.data);
-            if (rows.length > 0) {
-              finalWarehouses = rows;
-              break;
-            }
-          } catch (_) {}
+try {
+  const res = await api.get(url);
+  const rows = extractCollection(res.data);
+  if (Array.isArray(rows) && rows.length > 0) {
+    finalSites = rows;
+    break;
+  } else {
+    console.warn(`L'URL ${url} a renvoyé une collection vide ou invalide:`, res.data);
+  }
+} catch (e) {
+  console.error(`Échec de l'appel sur ${url}:`, e.response?.status, e.message);
+}
         }
       }
 
