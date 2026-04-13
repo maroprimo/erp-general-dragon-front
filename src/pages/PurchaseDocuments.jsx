@@ -12,6 +12,10 @@ function asArray(payload) {
   return [];
 }
 
+function firstValue(...values) {
+  return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   try {
@@ -39,6 +43,12 @@ function formatMoney(value) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function displayUser(userLike) {
+  if (!userLike) return "-";
+  if (typeof userLike === "string") return userLike;
+  return userLike?.name || userLike?.email || "-";
 }
 
 function workflowBadgeClass(status) {
@@ -109,10 +119,31 @@ function normalizePurchaseOrders(items = []) {
       workflow_status: doc.workflow_status || "-",
       qr_token: doc.qr_token || null,
       qr_scan_url: doc.qr_scan_url || null,
-      security_verified_at: doc.security_verified_at || null,
-      security_verified_by: doc.security_verified_by || doc.securityVerifiedBy || null,
-      stock_validated_at: doc.stock_validated_at || null,
-      stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
+
+      security_verified_at: firstValue(
+        doc.security_verified_at
+      ),
+      security_verified_by: firstValue(
+        doc.security_verified_by,
+        doc.securityVerifiedBy
+      ),
+
+      stock_validated_at: firstValue(
+        doc.stock_validated_at
+      ),
+      stock_validated_by: firstValue(
+        doc.stock_validated_by,
+        doc.stockValidatedBy
+      ),
+
+      manager_verified_at: firstValue(
+        doc.manager_verified_at
+      ),
+      manager_verified_by: firstValue(
+        doc.manager_verified_by,
+        doc.managerVerifiedBy
+      ),
+
       supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
       site_name: doc.site?.name || "-",
       site_id: doc.site?.id ?? doc.site_id ?? null,
@@ -131,76 +162,159 @@ function normalizePurchaseOrders(items = []) {
 }
 
 function normalizeGoodsReceipts(items = []) {
-  return items.map((doc) => ({
-    id: doc.id,
-    doc_type: "BR",
-    doc_number: doc.receipt_number || `BR-${doc.id}`,
-    doc_date: doc.received_at || doc.document_date || doc.created_at || null,
-    status: doc.status || "-",
-    workflow_status: doc.workflow_status || "-",
-    qr_token: doc.qr_token || null,
-    qr_scan_url: doc.qr_scan_url || null,
-    security_verified_at: doc.security_verified_at || null,
-    security_verified_by: doc.security_verified_by || doc.securityVerifiedBy || null,
-    stock_validated_at: doc.stock_validated_at || null,
-    stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
-    manager_verified_at: doc.manager_verified_at || null,
-    manager_verified_by: doc.manager_verified_by || doc.managerVerifiedBy || null,
-    invoiced_at: doc.invoiced_at || null,
-    stock_applied_at: doc.stock_applied_at || null,
-    source_type: doc.source_type || null,
-    supplier_name:
-      doc.supplier?.company_name ||
-      doc.supplier?.name ||
-      doc.purchaseOrder?.supplier?.company_name ||
-      doc.purchaseOrder?.supplier?.name ||
-      "-",
-    site_name: doc.site?.name || "-",
-    site_id: doc.site?.id ?? doc.site_id ?? null,
-    warehouse_name: doc.warehouse?.name || "-",
-    warehouse_id: doc.warehouse?.id ?? doc.warehouse_id ?? null,
-    total_price: doc.total_price ?? null,
-    notes: doc.notes || "",
-    lines: doc.lines || [],
-    raw: doc,
-  }));
+  return items.map((doc) => {
+    const purchaseOrder = doc.purchaseOrder || doc.purchase_order || null;
+
+    return {
+      id: doc.id,
+      doc_type: "BR",
+      doc_number: doc.receipt_number || `BR-${doc.id}`,
+      doc_date: doc.received_at || doc.document_date || doc.created_at || null,
+      status: doc.status || "-",
+      workflow_status: doc.workflow_status || "-",
+      qr_token: doc.qr_token || null,
+      qr_scan_url: doc.qr_scan_url || null,
+
+      security_verified_at: firstValue(
+        doc.security_verified_at,
+        purchaseOrder?.security_verified_at
+      ),
+      security_verified_by: firstValue(
+        doc.security_verified_by,
+        doc.securityVerifiedBy,
+        purchaseOrder?.security_verified_by,
+        purchaseOrder?.securityVerifiedBy
+      ),
+
+      stock_validated_at: firstValue(
+        doc.stock_validated_at,
+        purchaseOrder?.stock_validated_at
+      ),
+      stock_validated_by: firstValue(
+        doc.stock_validated_by,
+        doc.stockValidatedBy,
+        purchaseOrder?.stock_validated_by,
+        purchaseOrder?.stockValidatedBy
+      ),
+
+      manager_verified_at: firstValue(
+        doc.manager_verified_at
+      ),
+      manager_verified_by: firstValue(
+        doc.manager_verified_by,
+        doc.managerVerifiedBy
+      ),
+
+      invoiced_at: firstValue(doc.invoiced_at),
+      stock_applied_at: firstValue(doc.stock_applied_at),
+      source_type: doc.source_type || null,
+
+      supplier_name:
+        doc.supplier?.company_name ||
+        doc.supplier?.name ||
+        purchaseOrder?.supplier?.company_name ||
+        purchaseOrder?.supplier?.name ||
+        "-",
+
+      site_name: doc.site?.name || "-",
+      site_id: doc.site?.id ?? doc.site_id ?? null,
+      warehouse_name: doc.warehouse?.name || "-",
+      warehouse_id: doc.warehouse?.id ?? doc.warehouse_id ?? null,
+      total_price: doc.total_price ?? null,
+      notes: doc.notes || "",
+      lines: doc.lines || [],
+      raw: doc,
+    };
+  });
 }
 
 function normalizeInvoices(items = []) {
-  return items.map((doc) => ({
-    id: doc.id,
-    doc_type: "FACTURE",
-    doc_number: doc.invoice_number || `FAC-${doc.id}`,
-    doc_date: doc.invoice_date || doc.created_at || null,
-    status: doc.status || "-",
-    workflow_status: doc.workflow_status || "-",
-    qr_token: doc.qr_token || null,
-    qr_scan_url: doc.qr_scan_url || null,
-    security_verified_at: doc.security_verified_at || null,
-    security_verified_by: doc.security_verified_by || doc.securityVerifiedBy || null,
-    stock_validated_at: doc.stock_validated_at || null,
-    stock_validated_by: doc.stock_validated_by || doc.stockValidatedBy || null,
-    supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
-    site_name: doc.site?.name || doc.goodsReceipt?.site?.name || "-",
-    site_id:
-      doc.site?.id ??
-      doc.site_id ??
-      doc.goodsReceipt?.site?.id ??
-      doc.goodsReceipt?.site_id ??
-      null,
-    warehouse_name: doc.goodsReceipt?.warehouse?.name || doc.warehouse?.name || "-",
-    warehouse_id:
-      doc.goodsReceipt?.warehouse?.id ??
-      doc.goodsReceipt?.warehouse_id ??
-      doc.warehouse?.id ??
-      doc.warehouse_id ??
-      null,
-    total_price: doc.amount_ttc ?? doc.total_price ?? null,
-    notes: doc.notes || "",
-    goods_receipt: doc.goods_receipt || doc.goodsReceipt || null,
-    lines: doc.lines || [],
-    raw: doc,
-  }));
+  return items.map((doc) => {
+    const goodsReceipt = doc.goods_receipt || doc.goodsReceipt || null;
+    const purchaseOrder =
+      goodsReceipt?.purchaseOrder ||
+      goodsReceipt?.purchase_order ||
+      doc.purchaseOrder ||
+      doc.purchase_order ||
+      null;
+
+    return {
+      id: doc.id,
+      doc_type: "FACTURE",
+      doc_number: doc.invoice_number || `FAC-${doc.id}`,
+      doc_date: doc.invoice_date || doc.created_at || null,
+      status: doc.status || "-",
+      workflow_status: doc.workflow_status || "-",
+      qr_token: doc.qr_token || null,
+      qr_scan_url: doc.qr_scan_url || null,
+
+      security_verified_at: firstValue(
+        doc.security_verified_at,
+        goodsReceipt?.security_verified_at,
+        purchaseOrder?.security_verified_at
+      ),
+      security_verified_by: firstValue(
+        doc.security_verified_by,
+        doc.securityVerifiedBy,
+        goodsReceipt?.security_verified_by,
+        goodsReceipt?.securityVerifiedBy,
+        purchaseOrder?.security_verified_by,
+        purchaseOrder?.securityVerifiedBy
+      ),
+
+      stock_validated_at: firstValue(
+        doc.stock_validated_at,
+        goodsReceipt?.stock_validated_at,
+        purchaseOrder?.stock_validated_at
+      ),
+      stock_validated_by: firstValue(
+        doc.stock_validated_by,
+        doc.stockValidatedBy,
+        goodsReceipt?.stock_validated_by,
+        goodsReceipt?.stockValidatedBy,
+        purchaseOrder?.stock_validated_by,
+        purchaseOrder?.stockValidatedBy
+      ),
+
+      manager_verified_at: firstValue(
+        doc.validated_at,
+        doc.admin_validated_at,
+        doc.manager_verified_at,
+        goodsReceipt?.manager_verified_at
+      ),
+      manager_verified_by: firstValue(
+        doc.validated_by,
+        doc.validatedBy,
+        doc.admin_validated_by,
+        doc.adminValidatedBy,
+        doc.manager_verified_by,
+        doc.managerVerifiedBy,
+        goodsReceipt?.manager_verified_by,
+        goodsReceipt?.managerVerifiedBy
+      ),
+
+      supplier_name: doc.supplier?.company_name || doc.supplier?.name || "-",
+      site_name: doc.site?.name || goodsReceipt?.site?.name || "-",
+      site_id:
+        doc.site?.id ??
+        doc.site_id ??
+        goodsReceipt?.site?.id ??
+        goodsReceipt?.site_id ??
+        null,
+      warehouse_name: goodsReceipt?.warehouse?.name || doc.warehouse?.name || "-",
+      warehouse_id:
+        goodsReceipt?.warehouse?.id ??
+        goodsReceipt?.warehouse_id ??
+        doc.warehouse?.id ??
+        doc.warehouse_id ??
+        null,
+      total_price: doc.amount_ttc ?? doc.total_price ?? null,
+      notes: doc.notes || "",
+      goods_receipt: goodsReceipt,
+      lines: doc.lines || [],
+      raw: doc,
+    };
+  });
 }
 
 function computeLineQuantity(line) {
@@ -365,7 +479,8 @@ export default function PurchaseDocuments() {
   const canEditBc =
     selectedDoc?.doc_type === "BC" &&
     !selectedDoc?.generated_goods_receipt_id &&
-    ["security_verified", "stock_validated"].includes(selectedDoc?.workflow_status);
+    !!selectedDoc?.stock_validated_at &&
+    selectedDoc?.workflow_status === "stock_validated";
 
   const canValidateBcToBr = canEditBc;
 
@@ -816,9 +931,7 @@ export default function PurchaseDocuments() {
                       {formatDateTime(selectedDoc.security_verified_at)}
                     </div>
                     <div className="mt-1 text-sm text-slate-500">
-                      {selectedDoc.security_verified_by?.name ||
-                        selectedDoc.security_verified_by?.email ||
-                        "-"}
+                      {displayUser(selectedDoc.security_verified_by)}
                     </div>
                   </div>
 
@@ -828,24 +941,22 @@ export default function PurchaseDocuments() {
                       {formatDateTime(selectedDoc.stock_validated_at)}
                     </div>
                     <div className="mt-1 text-sm text-slate-500">
-                      {selectedDoc.stock_validated_by?.name ||
-                        selectedDoc.stock_validated_by?.email ||
-                        "-"}
+                      {displayUser(selectedDoc.stock_validated_by)}
                     </div>
                   </div>
 
-                  {selectedDoc.doc_type === "BR" && (
+                  {(selectedDoc.doc_type === "BR" || selectedDoc.doc_type === "FACTURE") && (
                     <div className="rounded-xl bg-slate-50 p-4">
                       <div className="text-sm text-slate-500">
-                        Vérification responsable
+                        {selectedDoc.doc_type === "FACTURE"
+                          ? "Validation manager / admin"
+                          : "Vérification responsable"}
                       </div>
                       <div className="font-semibold text-slate-800">
                         {formatDateTime(selectedDoc.manager_verified_at)}
                       </div>
                       <div className="mt-1 text-sm text-slate-500">
-                        {selectedDoc.manager_verified_by?.name ||
-                          selectedDoc.manager_verified_by?.email ||
-                          "-"}
+                        {displayUser(selectedDoc.manager_verified_by)}
                       </div>
                     </div>
                   )}

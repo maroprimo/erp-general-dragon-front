@@ -4,11 +4,27 @@ import api from "../services/api";
 import toast from "react-hot-toast";
 import { formatDateTime } from "../utils/formatters";
 
+function firstValue(...values) {
+  return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
+function displayUser(userLike) {
+  if (!userLike) return "-";
+  if (typeof userLike === "string") return userLike;
+  return userLike?.name || userLike?.email || "-";
+}
+
 function extractToken(value) {
   if (!value) return "";
 
   try {
     const url = new URL(value);
+
+    const tokenFromQuery = url.searchParams.get("scan_token");
+    if (tokenFromQuery) {
+      return tokenFromQuery;
+    }
+
     const parts = url.pathname.split("/").filter(Boolean);
     const idx = parts.indexOf("scan-purchase-document");
 
@@ -16,6 +32,11 @@ function extractToken(value) {
       return parts[idx + 1];
     }
   } catch (_) {}
+
+  const fromQueryMatch = value.match(/[?&]scan_token=([^&]+)/);
+  if (fromQueryMatch?.[1]) {
+    return decodeURIComponent(fromQueryMatch[1]);
+  }
 
   return value.replace(/^.*scan-purchase-document\//, "").trim();
 }
@@ -103,11 +124,7 @@ export default function PurchaseDocumentScanMobile() {
       setProcessing(true);
       const res = await api.post(`/purchase-document-scan/${scanToken}/security-check`);
       toast.success(res.data.message || "Vérification sécurité OK");
-      setData({
-        type: res.data.type,
-        label: res.data.label,
-        document: res.data.document,
-      });
+      await loadDocument(scanToken);
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur sécurité");
@@ -121,11 +138,7 @@ export default function PurchaseDocumentScanMobile() {
       setProcessing(true);
       const res = await api.post(`/purchase-document-scan/${scanToken}/stock-validate`);
       toast.success(res.data.message || "Validation OK");
-      setData({
-        type: res.data.type,
-        label: res.data.label,
-        document: res.data.document,
-      });
+      await loadDocument(scanToken);
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur validation");
@@ -135,6 +148,62 @@ export default function PurchaseDocumentScanMobile() {
   };
 
   const document = data?.document || null;
+  const purchaseOrder =
+    document?.purchaseOrder ||
+    document?.purchase_order ||
+    document?.goodsReceipt?.purchaseOrder ||
+    document?.goodsReceipt?.purchase_order ||
+    null;
+  const goodsReceipt = document?.goodsReceipt || document?.goods_receipt || null;
+
+  const resolvedSecurityVerifiedAt = firstValue(
+    document?.security_verified_at,
+    goodsReceipt?.security_verified_at,
+    purchaseOrder?.security_verified_at
+  );
+
+  const resolvedSecurityVerifiedBy = firstValue(
+    document?.security_verified_by,
+    document?.securityVerifiedBy,
+    goodsReceipt?.security_verified_by,
+    goodsReceipt?.securityVerifiedBy,
+    purchaseOrder?.security_verified_by,
+    purchaseOrder?.securityVerifiedBy
+  );
+
+  const resolvedStockValidatedAt = firstValue(
+    document?.stock_validated_at,
+    goodsReceipt?.stock_validated_at,
+    purchaseOrder?.stock_validated_at
+  );
+
+  const resolvedStockValidatedBy = firstValue(
+    document?.stock_validated_by,
+    document?.stockValidatedBy,
+    goodsReceipt?.stock_validated_by,
+    goodsReceipt?.stockValidatedBy,
+    purchaseOrder?.stock_validated_by,
+    purchaseOrder?.stockValidatedBy
+  );
+
+  const resolvedManagerVerifiedAt = firstValue(
+    document?.manager_verified_at,
+    document?.validated_at,
+    document?.admin_validated_at,
+    goodsReceipt?.manager_verified_at
+  );
+
+  const resolvedManagerVerifiedBy = firstValue(
+    document?.manager_verified_by,
+    document?.managerVerifiedBy,
+    document?.validated_by,
+    document?.validatedBy,
+    document?.admin_validated_by,
+    document?.adminValidatedBy,
+    goodsReceipt?.manager_verified_by,
+    goodsReceipt?.managerVerifiedBy
+  );
+
   const workflow = String(document?.workflow_status || "").toLowerCase();
   const label = String(data?.label || "").toUpperCase();
   const sourceType = String(document?.source_type || "").toLowerCase();
@@ -148,26 +217,28 @@ export default function PurchaseDocumentScanMobile() {
   const isDirectInvoice = isInvoice && !document?.goods_receipt_id;
 
   const canSecurityCheck = useMemo(() => {
-    return (
-      isBC &&
-      !document?.security_verified_at &&
-      ["waiting_security", "pending", "", "-"].includes(workflow)
-    );
-  }, [isBC, document?.security_verified_at, workflow]);
+    if (isBC) {
+      return (
+        !resolvedSecurityVerifiedAt &&
+        ["waiting_security", "pending", "", "-"].includes(workflow)
+      );
+    }
+
+    return false;
+  }, [isBC, resolvedSecurityVerifiedAt, workflow]);
 
   const canManagerValidate = useMemo(() => {
     if (isBC) {
       return (
-        !document?.stock_validated_at &&
-        ["waiting_security", "security_verified", "stock_validated", "", "-"].includes(
-          workflow
-        )
+        !!resolvedSecurityVerifiedAt &&
+        !resolvedStockValidatedAt &&
+        workflow === "security_verified"
       );
     }
 
     if (isBR) {
       return (
-        !document?.manager_verified_at &&
+        !resolvedManagerVerifiedAt &&
         !document?.stock_applied_at &&
         ["waiting_manager", "security_verified", "stock_validated", "", "-"].includes(
           workflow
@@ -184,8 +255,9 @@ export default function PurchaseDocumentScanMobile() {
     isBC,
     isBR,
     isInvoice,
-    document?.stock_validated_at,
-    document?.manager_verified_at,
+    resolvedSecurityVerifiedAt,
+    resolvedStockValidatedAt,
+    resolvedManagerVerifiedAt,
     document?.stock_applied_at,
     workflow,
     status,
@@ -263,13 +335,47 @@ export default function PurchaseDocumentScanMobile() {
               <div className="rounded-xl bg-slate-50 p-4">
                 <div className="text-sm text-slate-500">Date sécurité</div>
                 <div className="font-semibold text-slate-800">
-                  {formatDateTime(document?.security_verified_at)}
+                  {formatDateTime(resolvedSecurityVerifiedAt)}
                 </div>
               </div>
             </div>
           </div>
 
-          {isBR && !document?.manager_verified_at && (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-xl bg-slate-50 p-4">
+              <div className="text-sm text-slate-500">Vérifié sécurité</div>
+              <div className="font-semibold text-slate-800">
+                {formatDateTime(resolvedSecurityVerifiedAt)}
+              </div>
+              <div className="mt-1 text-sm text-slate-500">
+                {displayUser(resolvedSecurityVerifiedBy)}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-4">
+              <div className="text-sm text-slate-500">Validation stock</div>
+              <div className="font-semibold text-slate-800">
+                {formatDateTime(resolvedStockValidatedAt)}
+              </div>
+              <div className="mt-1 text-sm text-slate-500">
+                {displayUser(resolvedStockValidatedBy)}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-4">
+              <div className="text-sm text-slate-500">
+                {isInvoice ? "Validation manager / admin" : "Vérification responsable"}
+              </div>
+              <div className="font-semibold text-slate-800">
+                {formatDateTime(resolvedManagerVerifiedAt)}
+              </div>
+              <div className="mt-1 text-sm text-slate-500">
+                {displayUser(resolvedManagerVerifiedBy)}
+              </div>
+            </div>
+          </div>
+
+          {isBR && !resolvedManagerVerifiedAt && (
             <div className="rounded-2xl bg-amber-50 p-4 text-amber-700">
               {isDirectBr
                 ? "Ce BR direct doit être validé par le responsable avant intégration au stock."
@@ -277,7 +383,7 @@ export default function PurchaseDocumentScanMobile() {
             </div>
           )}
 
-          {isBR && document?.manager_verified_at && (
+          {isBR && resolvedManagerVerifiedAt && (
             <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-700">
               Ce BR a déjà été validé.
             </div>
