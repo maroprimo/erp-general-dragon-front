@@ -1,232 +1,630 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 
+const APP_BASE_URL =
+  (import.meta.env.VITE_BACKEND_WEB_URL || "https://stock.dragonroyalmg.com").replace(
+    /\/index\.php$/,
+    ""
+  );
 
-// 1. SEULE cette fonction peut être à l'extérieur (car elle est "pure")
-function buildLogoUrl(path) {
+function buildAssetUrl(path) {
   if (!path) return "";
-  if (path.startsWith("http")) return path;
-  return `https://stock.dragonroyalmg.com/uploads/${path}`;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+
+  // 1. Nettoyer le chemin pour enlever les slashs en double au début
+  let clean = path.startsWith("/") ? path : `/${path}`;
+
+  // 2. CORRECTION CRUCIALE : Remplacer /storage/ par /uploads/ 
+  // car votre serveur pointe vers 'public/uploads'
+  if (clean.startsWith("/storage/")) {
+    clean = clean.replace("/storage/", "/uploads/");
+  }
+
+  // 3. Si le chemin commence déjà par /uploads/, on ajoute juste l'URL de base
+  if (clean.startsWith("/uploads/")) {
+    return `${APP_BASE_URL}${clean}`;
+  }
+
+  // 4. Par défaut, on assume que c'est dans /uploads/
+  return `${APP_BASE_URL}/uploads${clean}`;
 }
+
+function getInitials(name = "") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "DR";
+}
+
+const MENU_GROUPS = [
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    title: "Dashboard",
+    description:
+      "Vue d’ensemble des indicateurs du site et du pilotage global du stock.",
+    items: [
+      {
+        key: "stockDashboardSite",
+        label: "Dashboard Site",
+        roles: ["pdg", "admin", "stock", "cuisine", "controle"],
+      },
+      {
+        key: "stockDashboardGlobal",
+        label: "Dashboard PDG Stock",
+        roles: ["pdg"],
+      },
+    ],
+  },
+  {
+    key: "stock",
+    label: "Stock",
+    title: "Gestion du stock",
+    description:
+      "Suivi du stock, pertes, inventaires et contrôle des niveaux par dépôt.",
+    items: [
+      {
+        key: "stock",
+        label: "Stock",
+        roles: ["pdg", "admin", "stock"],
+      },
+      {
+        key: "stockLosses",
+        label: "Pertes",
+        roles: ["pdg", "admin", "stock", "cuisine", "controle"],
+      },
+      {
+        key: "stockInventories",
+        label: "Inventaires",
+        roles: ["pdg", "admin", "stock", "controle"],
+      },
+    ],
+  },
+  {
+    key: "fabrication",
+    label: "Fabrication",
+    title: "Fabrication",
+    description:
+      "Création, exécution, suivi en temps réel et contrôle des consommations de fabrication.",
+    items: [
+      {
+        key: "newProduction",
+        label: "Fabrication",
+        roles: ["pdg", "admin", "cuisine"],
+      },
+      {
+        key: "productionActions",
+        label: "Actions fabrication",
+        roles: ["pdg", "admin", "cuisine"],
+      },
+      {
+        key: "ProductionLive",
+        label: "Fabrication en live",
+        roles: ["pdg", "admin", "stock", "cuisine", "controle"],
+      },
+      {
+        key: "recipes",
+        label: "Fiches techniques",
+        roles: ["pdg", "admin", "cuisine", "stock"],
+      },
+      {
+        key: "kitchenConsumptionScanMobile",
+        label: "Scan Cuisine",
+        roles: ["pdg", "admin", "cuisine", "stock"],
+      },
+    ],
+  },
+  {
+    key: "achats",
+    label: "Achats",
+    title: "Achats",
+    description:
+      "Saisie des achats, gestion des fournisseurs, documents d’achats et scans de validation.",
+    items: [
+      {
+        key: "purchasePOS",
+        label: "Achat POS",
+        roles: ["pdg", "admin", "achat", "stock"],
+      },
+      {
+        key: "purchaseDocuments",
+        label: "Docs achats",
+        roles: ["pdg", "admin", "achat", "stock"],
+      },
+      {
+        key: "suppliers",
+        label: "Fournisseurs",
+        roles: ["pdg", "admin", "achat", "stock"],
+      },
+      {
+        key: "purchaseDocumentScanMobile",
+        label: "Scan Docs Achats",
+        roles: ["pdg", "admin", "stock", "securite", "achat"],
+      },
+    ],
+  },
+  {
+    key: "inter-sites",
+    label: "Inter-sites",
+    title: "Flux inter-sites",
+    description:
+      "Demandes inter-sites, scans logistiques, suivi transport et contrôle des transferts.",
+    items: [
+      {
+        key: "interSiteRequests",
+        label: "Inter-sites",
+        roles: ["pdg", "admin", "stock", "controle"],
+      },
+      {
+        key: "transferScanMobile",
+        label: "Scan Transfert",
+        roles: ["pdg", "admin", "stock", "controle", "chauffeur", "securite"],
+      },
+      {
+        key: "transferTrackingDashboard",
+        label: "Suivi Transfert",
+        roles: ["pdg", "admin", "stock", "controle", "logistique"],
+      },
+    ],
+  },
+  {
+    key: "referentiels",
+    label: "Référentiels",
+    title: "Référentiels",
+    description:
+      "Configuration des produits, sites, dépôts, zones de stockage et unités.",
+    items: [
+      {
+        key: "productsCatalog",
+        label: "Gestion Produits",
+        roles: ["pdg", "admin", "stock", "achat"],
+      },
+      {
+        key: "sites",
+        label: "Sites",
+        roles: ["pdg"],
+      },
+      {
+        key: "warehouses",
+        label: "Dépôts",
+        roles: ["pdg", "admin", "stock"],
+      },
+      {
+        key: "storageZones",
+        label: "Zones stockage",
+        roles: ["pdg", "admin", "stock"],
+      },
+      {
+        key: "units",
+        label: "Unités",
+        roles: ["pdg", "admin", "stock", "cuisine"],
+      },
+    ],
+  },
+  {
+    key: "pilotage",
+    label: "Pilotage",
+    title: "Pilotage & analyse",
+    description:
+      "Outils d’analyse, intelligence métier, audit et supervision décisionnelle.",
+    items: [
+      {
+        key: "financeAI",
+        label: "IA Trésorerie",
+        roles: ["pdg"],
+      },
+      {
+        key: "analytics",
+        label: "Analytics",
+        roles: ["pdg"],
+      },
+      {
+        key: "auditLogs",
+        label: "Audit Logs",
+        roles: ["pdg"],
+      },
+    ],
+  },
+  {
+    key: "compte",
+    label: "Compte",
+    title: "Compte & administration",
+    description:
+      "Gestion des utilisateurs, profil et paramètres d’accès de la plateforme.",
+    items: [
+      {
+        key: "users",
+        label: "Utilisateurs",
+        roles: ["pdg"],
+      },
+      {
+        key: "profile",
+        label: "Profile",
+        roles: ["pdg", "admin", "stock", "achat"],
+      },
+    ],
+  },
+];
 
 export default function AppLayout({ user, logout, page, setPage, children }) {
   const [stockAlertCount, setStockAlertCount] = useState(0);
   const [pendingTransferCount, setPendingTransferCount] = useState(0);
   const [siteName, setSiteName] = useState("Chargement...");
   const [mainSite, setMainSite] = useState(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-useEffect(() => {
-    // 1. Charge le site principal (Logo/Nom dans le sidebar)
-    const loadMainSite = async () => {
+  useEffect(() => {
+    const loadMainData = async () => {
       try {
-        const res = await api.get("/sites");
-        const allSites = res.data?.data ?? res.data ?? [];
+        const [sitesRes, pendingRes, stockRes] = await Promise.allSettled([
+          api.get("/sites"),
+          api.get("/inter-site-requests/pending-count"),
+          api.get("/dashboard/stock/alert-count"),
+        ]);
+
+        const allSites =
+          sitesRes.status === "fulfilled"
+            ? sitesRes.value.data?.data ?? sitesRes.value.data ?? []
+            : [];
+
         const defaultSite = allSites.find((s) => s.is_default) || allSites[0] || null;
-        setMainSite(defaultSite);
-      } catch (err) {
-        console.error("Erreur loadMainSite:", err);
-      }
-    };
+        const userSite = user?.site_id
+          ? allSites.find((s) => Number(s.id) === Number(user.site_id))
+          : null;
 
-    // 2. Charge les compteurs et le nom du site actuel
-    const loadHeaderData = async () => {
-      try {
-        const resCount = await api.get("/inter-site-requests/pending-count");
-        setPendingTransferCount(resCount.data.count ?? 0);
+        const displaySite = userSite || defaultSite || null;
 
-        // On récupère la liste pour éviter l'erreur 405 sur /sites/{id}
-        const resSites = await api.get("/sites");
-        const allSites = resSites.data?.data ?? resSites.data ?? [];
+        setMainSite(displaySite);
 
-        let siteData = null;
-
-        if (user?.site_id) {
-          // On cherche le site spécifique dans la liste chargée
-          siteData = allSites.find((s) => s.id === user.site_id);
+        if (userSite) {
+          setSiteName(userSite.name || "Site inconnu");
         } else {
-          // Cas Admin : site par défaut
-          siteData = allSites.find((s) => s.is_default) || allSites[0];
+          setSiteName(defaultSite?.name ? `Tous les sites · ${defaultSite.name}` : "Tous les sites");
         }
 
-        if (siteData) {
-          setMainSite(siteData); // Met à jour le logo et les infos sidebar
-          setSiteName(siteData.name); // Met à jour le nom dans le header
-        } else {
-          setSiteName(user?.site_id ? "Site inconnu" : "Tous les sites (Admin)");
+        if (pendingRes.status === "fulfilled") {
+          setPendingTransferCount(pendingRes.value.data?.count ?? 0);
+        }
+
+        if (stockRes.status === "fulfilled") {
+          setStockAlertCount(stockRes.value.data?.count ?? 0);
         }
       } catch (err) {
-        console.error("Erreur loadHeaderData:", err);
+        console.error("Erreur AppLayout:", err);
         setSiteName("Erreur site");
       }
     };
 
-    // 3. Charge les alertes de stock
-    const loadStockAlerts = async () => {
-      try {
-        const res = await api.get("/dashboard/stock/alert-count");
-        setStockAlertCount(res.data.count ?? 0);
-      } catch (err) {
-        console.error("Erreur loadStockAlerts:", err);
-      }
-    };
-
-    // Exécution des fonctions
-    loadHeaderData();
-    loadStockAlerts();
-    loadMainSite();
+    loadMainData();
   }, [user]);
 
-  const navItems = [
-    { key: "stockDashboardSite", label: "Dashboard Site", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
-    { key: "stockDashboardGlobal", label: "Dashboard PDG Stock", roles: ["pdg"] },
-    { key: "stock", label: "Stock", roles: ["pdg", "admin", "stock"] },
-    { key: "stockLosses", label: "Pertes", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
-    { key: "ProductionLive", label: "Fabrication en live", roles: ["pdg", "admin", "stock", "cuisine", "controle"] },
-    { key: "stockInventories", label: "Inventaires", roles: ["pdg", "admin", "stock", "controle"] },
-    { key: "newProduction", label: "Fabrication", roles: ["pdg", "admin", "cuisine"] },
-    { key: "recipes", label: "Fiches techniques", roles: ["pdg", "admin", "cuisine", "stock"] },
-    { key: "productionActions", label: "Actions fabrication", roles: ["pdg", "admin", "cuisine"] },
-    //{ key: "ia", label: "IA", roles: ["pdg"] },
-    { key: "purchasePOS", label: "Achat POS", roles: ["pdg", "admin", "achat", "stock"] },
-    { key: "purchaseDocuments", label: "Docs achats", roles: ["pdg", "admin", "achat", "stock"] },
-    { key: "suppliers", label: "Fournisseurs", roles: ["pdg", "admin", "achat", "stock"] },
-    //{ key: "transfers", label: "Transferts", roles: ["pdg", "admin", "stock"] },
-    //{ key: "transferValidation", label: "Validation transfert", roles: ["pdg", "admin", "stock", "controle"] },
-    { key: "interSiteRequests", label: "Inter-sites", roles: ["pdg", "admin", "stock", "controle"] },
-    { key: "sites", label: "Sites", roles: ["pdg"] },
-    //{ key: "finance", label: "Finance", roles: ["pdg"] },
-    { key: "financeAI", label: "IA Trésorerie", roles: ["pdg"] },
-    { key: "analytics", label: "Analytics", roles: ["pdg"] },
-    { key: "users", label: "Utilisateurs", roles: ["pdg"] },
-    { key: "auditLogs", label: "Audit Logs", roles: ["pdg"] },
-    { key: "productsCatalog", label: "Gestion Produits", roles: ["pdg", "admin", "stock", "achat"] },
-    { key: "profile", label: "Profile", roles: ["pdg", "admin", "stock", "achat"] },
-    { key: "transferScanMobile", label: "Scan Transfert", roles: ["pdg", "admin", "stock", "controle", "chauffeur", "securite"] },
-    { key: "transferTrackingDashboard", label: "Suivi Transfert", roles: ["pdg", "admin", "stock", "controle", "logistique"] },
-    { key: "warehouses", label: "Dépôts", roles: ["pdg", "admin", "stock"] },
-    { key: "storageZones", label: "Zones stockage", roles: ["pdg", "admin", "stock"] },
-    { key: "units", label: "Unités", roles: ["pdg", "admin", "stock", "cuisine"] },
-    { key: "purchaseDocumentScanMobile", label: "Scan Docs Achats", roles: ["pdg", "admin", "stock", "securite", "achat"] },
-    { key: "kitchenConsumptionScanMobile", label: "Scan Cuisine", roles: ["pdg", "admin", "cuisine", "stock"] },
-    
-  ];
+  const groupedNav = useMemo(() => {
+    return MENU_GROUPS.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.roles.includes(user?.role)),
+    })).filter((group) => group.items.length > 0);
+  }, [user]);
 
-  const filteredNav = navItems.filter((item) => item.roles.includes(user?.role));
+  const currentGroup = useMemo(() => {
+    return (
+      groupedNav.find((group) => group.items.some((item) => item.key === page)) ||
+      groupedNav[0] ||
+      null
+    );
+  }, [groupedNav, page]);
 
-  return (
-    <div className="flex min-h-screen bg-slate-100">
-      <aside className="w-72 bg-slate-900 text-white shadow-xl">
-      <div className="border-b border-slate-800 px-6 py-6">
+  const currentItem = useMemo(() => {
+    if (!currentGroup) return null;
+    return (
+      currentGroup.items.find((item) => item.key === page) || currentGroup.items[0] || null
+    );
+  }, [currentGroup, page]);
 
+  useEffect(() => {
+    if (!groupedNav.length) return;
+
+    const pageExists = groupedNav.some((group) =>
+      group.items.some((item) => item.key === page)
+    );
+
+    if (!pageExists) {
+      setPage(groupedNav[0].items[0].key);
+    }
+  }, [groupedNav, page, setPage]);
+
+  const handleGroupClick = (group) => {
+    if (!group?.items?.length) return;
+    setPage(group.items[0].key);
+    setMobileMenuOpen(false);
+  };
+
+  const handleSubmenuClick = (itemKey) => {
+    setPage(itemKey);
+  };
+
+  const getGroupBadge = (groupKey) => {
+    if (groupKey === "inter-sites" && pendingTransferCount > 0) {
+      return pendingTransferCount;
+    }
+
+    if ((groupKey === "dashboard" || groupKey === "stock") && stockAlertCount > 0) {
+      return stockAlertCount;
+    }
+
+    return 0;
+  };
+
+  const avatarUrl = buildAssetUrl(user?.avatar_url || user?.avatar_path || "");
+  const logoUrl = buildAssetUrl(
+    mainSite?.logo_url || mainSite?.logo_path || mainSite?.logo || ""
+  );
+
+  const sidebar = (
+    <aside className="flex h-full w-[290px] flex-col bg-slate-950 text-white">
+      <div className="border-b border-white/10 px-5 py-5">
         <div className="flex items-center gap-3">
-        {/* 3. L'affichage du LOGO corrigé */}
-                    {mainSite?.logo_path ? (
-                      <img
-                        src={buildLogoUrl(mainSite.logo_path)}
-                        alt={mainSite.name}
-                        className="h-12 w-12 rounded-xl object-cover border border-slate-700 bg-white"
-                        onError={(e) => {
-                          e.target.src = "https://ui-avatars.com/api/?name=DR";
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-700 text-sm text-white">
-                        DR
-                      </div>
-                    )}
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={mainSite?.name || "Site"}
+              className="h-12 w-12 rounded-2xl border border-white/10 bg-white object-cover"
+              onError={(e) => {
+                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                  mainSite?.name || "DR"
+                )}&background=0f172a&color=ffffff`;
+              }}
+            />
+          ) : (
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-sm font-bold">
+              {getInitials(mainSite?.name || "Dragon")}
+            </div>
+          )}
 
-                    <div>
-                        <h1 className="text-xl font-bold text-white">
-                          {mainSite?.name || "Chargement..."}
-                        </h1>
-                        <p className="mt-1 text-xs text-slate-300">
-                          {mainSite?.type_site || "ERP Dragon"}
-                        </p>
-                      </div>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold text-white">
+              {mainSite?.name || "Dragon ERP"}
+            </h1>
+            <p className="truncate text-xs text-slate-300">
+              {mainSite?.type_site || "Gestion stock & opérations"}
+            </p>
           </div>
         </div>
+      </div>
 
-        <nav className="space-y-2 p-4">
-          {filteredNav.map((item) => {
-            const isInterSite = item.key === "interSiteRequests";
-            const isStockDashboard = item.key === "stockDashboardSite" || item.key === "stockDashboardGlobal";
+      <div className="px-4 py-4">
+        <div className="mb-3 px-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+          Navigation
+        </div>
+
+        <nav className="space-y-2">
+          {groupedNav.map((group) => {
+            const active = currentGroup?.key === group.key;
+            const badge = getGroupBadge(group.key);
 
             return (
               <button
-                key={item.key}
-                onClick={() => setPage(item.key)}
-                className={`flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm font-medium transition ${
-                  page === item.key
-                    ? "bg-white text-slate-900"
-                    : "bg-slate-800 text-slate-100 hover:bg-slate-700"
+                key={group.key}
+                onClick={() => handleGroupClick(group)}
+                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
+                  active
+                    ? "bg-white text-slate-950 shadow-lg"
+                    : "bg-white/5 text-slate-100 hover:bg-white/10"
                 }`}
               >
-                <span>{item.label}</span>
+                <span>{group.label}</span>
 
-                {/* Badge Inter-sites (Rouge) */}
-                {isInterSite && pendingTransferCount > 0 && (
-                  <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">
-                    {pendingTransferCount}
-                  </span>
-                )}
-
-                {/* Badge Alerte Stock (Orange/Ambre) sur les Dashboards Stock */}
-                {isStockDashboard && stockAlertCount > 0 && (
-                  <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs text-white">
-                    {stockAlertCount}
+                {badge > 0 && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      group.key === "inter-sites"
+                        ? "bg-red-600 text-white"
+                        : "bg-amber-500 text-white"
+                    }`}
+                  >
+                    {badge}
                   </span>
                 )}
               </button>
             );
           })}
         </nav>
-      </aside>
+      </div>
 
-      <div className="flex flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-800">{mainSite?.name || "Chargement..."}</h2>
-            <p className="text-sm text-slate-500">
-              <span className="font-semibold text-slate-700">Site : {siteName}</span> 
-              <span className="mx-2">|</span>
-              Utilisateur : {user?.name || user?.email} ({user?.role})
-            </p>
+      <div className="mt-auto border-t border-white/10 px-5 py-4">
+        <div className="rounded-2xl bg-white/5 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Connecté</div>
+          <div className="mt-2 text-sm font-semibold text-white">
+            {user?.name || user?.email || "Utilisateur"}
           </div>
+          <div className="mt-1 text-xs text-slate-300">{user?.role || "-"}</div>
+        </div>
+      </div>
+    </aside>
+  );
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3">
-              {user?.avatar_url ? (
-          <img 
-            src={`https://stock.dragonroyalmg.com/uploads/${user.avatar_path}`} 
-            alt="avatar"
-            className="h-10 w-10 rounded-full object-cover"
-            onError={(e) => {
-              console.log("Erreur de chargement sur l'URL :", e.target.src);
-              e.target.src = "https://ui-avatars.com/api/?name=" + user.name; // Image de secours si ça rate
-            }}
-          />
-              ) : (
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-slate-600">
-                  ?
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="flex min-h-screen">
+        <div className="hidden xl:block xl:sticky xl:top-0 xl:h-screen xl:shrink-0 xl:shadow-2xl">
+          {sidebar}
+        </div>
+
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 xl:hidden">
+            <div
+              className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <div className="absolute left-0 top-0 h-full shadow-2xl">{sidebar}</div>
+          </div>
+        )}
+
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+            <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setMobileMenuOpen(true)}
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm xl:hidden"
+                    aria-label="Ouvrir le menu"
+                  >
+                    ☰
+                  </button>
+
+                  <div className="min-w-0">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+                        {currentGroup?.label || "Menu"}
+                      </span>
+                      {currentItem?.label && (
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                          {currentItem.label}
+                        </span>
+                      )}
+                    </div>
+
+                    <h2 className="truncate text-2xl font-bold text-slate-900">
+                      {currentGroup?.title || mainSite?.name || "Tableau de bord"}
+                    </h2>
+
+                    <p className="mt-1 max-w-3xl text-sm text-slate-500">
+                      {currentGroup?.description ||
+                        "Plateforme centralisée de gestion opérationnelle."}
+                    </p>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                      <span className="font-semibold text-slate-700">
+                        Site : {siteName}
+                      </span>
+                      <span className="hidden sm:inline">•</span>
+                      <span>
+                        Utilisateur : {user?.name || user?.email} ({user?.role})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="hidden shrink-0 items-center gap-3 sm:flex">
+                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={user?.name || "Avatar"}
+                        className="h-10 w-10 rounded-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                            user?.name || "User"
+                          )}&background=e2e8f0&color=0f172a`;
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
+                        {getInitials(user?.name || user?.email || "U")}
+                      </div>
+                    )}
+
+                    <div className="text-right">
+                      <div className="max-w-[180px] truncate text-sm font-semibold text-slate-800">
+                        {user?.name || user?.email}
+                      </div>
+                      <div className="text-xs text-slate-500">{user?.role}</div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={logout}
+                    className="rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-red-700"
+                  >
+                    Déconnexion
+                  </button>
+                </div>
+              </div>
+
+              {currentGroup?.items?.length > 0 && (
+                <div className="overflow-x-auto">
+                  <div className="flex min-w-max gap-2 rounded-2xl bg-slate-50 p-2">
+                    {currentGroup.items.map((item) => {
+                      const isActive = page === item.key;
+                      const isInterSite = item.key === "interSiteRequests";
+                      const isStockDashboard =
+                        item.key === "stockDashboardSite" ||
+                        item.key === "stockDashboardGlobal";
+
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() => handleSubmenuClick(item.key)}
+                          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium whitespace-nowrap transition ${
+                            isActive
+                              ? "bg-white text-slate-900 shadow-sm"
+                              : "text-slate-600 hover:bg-white hover:text-slate-900"
+                          }`}
+                        >
+                          <span>{item.label}</span>
+
+                          {isInterSite && pendingTransferCount > 0 && (
+                            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+                              {pendingTransferCount}
+                            </span>
+                          )}
+
+                          {isStockDashboard && stockAlertCount > 0 && (
+                            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
+                              {stockAlertCount}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
-              <div className="text-right">
-                <div className="text-sm font-medium text-slate-800">{user?.name || user?.email}</div>
-                <div className="text-xs text-slate-500">{user?.role}</div>
+              <div className="flex items-center justify-between gap-3 sm:hidden">
+                <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={user?.name || "Avatar"}
+                      className="h-9 w-9 rounded-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                          user?.name || "User"
+                        )}&background=e2e8f0&color=0f172a`;
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
+                      {getInitials(user?.name || user?.email || "U")}
+                    </div>
+                  )}
+
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-800">
+                      {user?.name || user?.email}
+                    </div>
+                    <div className="text-xs text-slate-500">{user?.role}</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={logout}
+                  className="rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-red-700"
+                >
+                  Déconnexion
+                </button>
               </div>
             </div>
+          </header>
 
-            <button
-              onClick={logout}
-              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-            >
-              Déconnexion
-            </button>
-          </div>
-        </header>
-
-        <main className="flex-1 p-6">{children}</main>
+          <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8">
+            <div className="mx-auto w-full max-w-[1800px]">{children}</div>
+          </main>
+        </div>
       </div>
     </div>
   );
