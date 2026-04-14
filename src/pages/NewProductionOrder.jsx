@@ -1,10 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
+import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 
 export default function NewProductionOrder() {
   const { sites, warehouses, loading } = useReferences();
+  const { user } = useAuth();
+
   const [recipes, setRecipes] = useState([]);
   const [simulation, setSimulation] = useState(null);
   const [simLoading, setSimLoading] = useState(false);
@@ -34,6 +37,40 @@ export default function NewProductionOrder() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    setForm((prev) => ({
+      ...prev,
+      responsible_user_id: String(user.id),
+      site_id: prev.site_id || (user.site_id ? String(user.site_id) : ""),
+    }));
+  }, [user]);
+
+  const filteredWarehouses = useMemo(() => {
+    if (!form.site_id) return warehouses;
+    return warehouses.filter(
+      (warehouse) => Number(warehouse.site_id) === Number(form.site_id)
+    );
+  }, [warehouses, form.site_id]);
+
+  useEffect(() => {
+    if (!form.site_id) return;
+
+    const warehouseStillValid = filteredWarehouses.some(
+      (warehouse) => Number(warehouse.id) === Number(form.warehouse_id)
+    );
+
+    if (!warehouseStillValid) {
+      setForm((prev) => ({
+        ...prev,
+        warehouse_id: filteredWarehouses[0]?.id
+          ? String(filteredWarehouses[0].id)
+          : "",
+      }));
+    }
+  }, [form.site_id, filteredWarehouses, form.warehouse_id]);
+
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -51,23 +88,44 @@ export default function NewProductionOrder() {
         planned_quantity: Number(form.planned_quantity),
         scheduled_date: form.scheduled_date || null,
         expected_end_at: form.expected_end_at || null,
-        responsible_user_id: form.responsible_user_id ? Number(form.responsible_user_id) : null,
-        notes: form.notes,
+        responsible_user_id: user?.id ? Number(user.id) : null,
+        notes: form.notes || "",
       };
 
       const res = await api.post("/production/orders", payload);
-      toast.success(res.data.message || "Ordre de fabrication créé");
+
+      const successMessage =
+        res.data.message || "Ordre de fabrication créé";
+      setMessage(successMessage);
+      toast.success(successMessage);
+
+      setForm((prev) => ({
+        ...prev,
+        warehouse_id: "",
+        recipe_id: "",
+        planned_quantity: "",
+        scheduled_date: "",
+        expected_end_at: "",
+        notes: "",
+        responsible_user_id: user?.id ? String(user.id) : "",
+      }));
+
+      setSimulation(null);
     } catch (err) {
       console.error(err);
-      toast.error("Erreur lors de la création de l’ordre de fabrication");
+      const errorMessage =
+        err?.response?.data?.message ||
+        "Erreur lors de la création de l’ordre de fabrication";
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
   const simulateProduction = async () => {
-  if (!form.recipe_id || !form.site_id || !form.planned_quantity) {
-    setSimulation(null);
-    return;
-  }
+    if (!form.recipe_id || !form.site_id || !form.planned_quantity) {
+      setSimulation(null);
+      return;
+    }
 
     try {
       setSimLoading(true);
@@ -89,9 +147,9 @@ export default function NewProductionOrder() {
     }
   };
 
-
   useEffect(() => {
     simulateProduction();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.recipe_id, form.site_id, form.warehouse_id, form.planned_quantity]);
 
   if (loading) {
@@ -105,7 +163,10 @@ export default function NewProductionOrder() {
           Nouvel ordre de fabrication
         </h1>
 
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <form
+          onSubmit={handleSubmit}
+          className="grid grid-cols-1 gap-4 md:grid-cols-2"
+        >
           <select
             className="rounded-xl border p-3"
             value={form.site_id}
@@ -125,7 +186,7 @@ export default function NewProductionOrder() {
             onChange={(e) => handleChange("warehouse_id", e.target.value)}
           >
             <option value="">Choisir un dépôt</option>
-            {warehouses.map((warehouse) => (
+            {filteredWarehouses.map((warehouse) => (
               <option key={warehouse.id} value={warehouse.id}>
                 {warehouse.name}
               </option>
@@ -168,11 +229,17 @@ export default function NewProductionOrder() {
           />
 
           <input
-            type="number"
-            placeholder="responsible_user_id (optionnel)"
-            className="rounded-xl border p-3"
-            value={form.responsible_user_id}
-            onChange={(e) => handleChange("responsible_user_id", e.target.value)}
+            type="text"
+            className="rounded-xl border bg-slate-100 p-3 text-slate-700"
+            value={
+              user?.name
+                ? `${user.name} (ID: ${user.id})`
+                : form.responsible_user_id
+                ? `ID: ${form.responsible_user_id}`
+                : ""
+            }
+            readOnly
+            placeholder="Demandeur connecté"
           />
 
           <input
@@ -191,50 +258,65 @@ export default function NewProductionOrder() {
           </button>
         </form>
       </div>
-{simulation && (
-  <div className="rounded-2xl bg-white p-6 shadow">
-    <h2 className="mb-4 text-2xl font-bold text-slate-800">Simulation ingrédients</h2>
 
-    {simLoading ? (
-      <div>Calcul en cours...</div>
-    ) : (
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left">
-          <thead className="border-b border-slate-200">
-            <tr className="text-slate-600">
-              <th className="px-4 py-3">Ingrédient</th>
-              <th className="px-4 py-3">Qté fiche</th>
-              <th className="px-4 py-3">Unité fiche</th>
-              <th className="px-4 py-3">Qté recalculée</th>
-              <th className="px-4 py-3">Qté unité stock</th>
-              <th className="px-4 py-3">Unité stock</th>
-              <th className="px-4 py-3">Stock dispo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {simulation.lines.map((line, idx) => (
-              <tr
-                key={idx}
-                className={`border-b border-slate-100 ${line.is_short ? "bg-red-100 text-red-700 font-semibold" : "hover:bg-slate-50"}`}
-              >
-                <td className="px-4 py-3">{line.product_name}</td>
-                <td className="px-4 py-3">{line.recipe_quantity_initial}</td>
-                <td className="px-4 py-3">{line.recipe_unit_name}</td>
-                <td className="px-4 py-3">{line.quantity_recalculated.toFixed(3)}</td>
-                <td className="px-4 py-3">{line.quantity_in_stock_unit.toFixed(3)}</td>
-                <td className="px-4 py-3">{line.stock_unit_name}</td>
-                <td className="px-4 py-3">{line.stock_available.toFixed(3)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )}
-  </div>
-)}
-      {message && <div className="mt-4 text-emerald-700 font-medium">{message}</div>}
-      {error && <div className="mt-4 text-red-600 font-medium">{error}</div>}
+      {simulation && (
+        <div className="mt-6 rounded-2xl bg-white p-6 shadow">
+          <h2 className="mb-4 text-2xl font-bold text-slate-800">
+            Simulation ingrédients
+          </h2>
+
+          {simLoading ? (
+            <div>Calcul en cours...</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left">
+                <thead className="border-b border-slate-200">
+                  <tr className="text-slate-600">
+                    <th className="px-4 py-3">Ingrédient</th>
+                    <th className="px-4 py-3">Qté fiche</th>
+                    <th className="px-4 py-3">Unité fiche</th>
+                    <th className="px-4 py-3">Qté recalculée</th>
+                    <th className="px-4 py-3">Qté unité stock</th>
+                    <th className="px-4 py-3">Unité stock</th>
+                    <th className="px-4 py-3">Stock dispo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {simulation.lines.map((line, idx) => (
+                    <tr
+                      key={idx}
+                      className={`border-b border-slate-100 ${
+                        line.is_short
+                          ? "bg-red-100 font-semibold text-red-700"
+                          : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <td className="px-4 py-3">{line.product_name}</td>
+                      <td className="px-4 py-3">{line.recipe_quantity_initial}</td>
+                      <td className="px-4 py-3">{line.recipe_unit_name}</td>
+                      <td className="px-4 py-3">
+                        {line.quantity_recalculated.toFixed(3)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {line.quantity_in_stock_unit.toFixed(3)}
+                      </td>
+                      <td className="px-4 py-3">{line.stock_unit_name}</td>
+                      <td className="px-4 py-3">
+                        {line.stock_available.toFixed(3)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {message && (
+        <div className="mt-4 font-medium text-emerald-700">{message}</div>
+      )}
+      {error && <div className="mt-4 font-medium text-red-600">{error}</div>}
     </div>
-    
   );
 }
