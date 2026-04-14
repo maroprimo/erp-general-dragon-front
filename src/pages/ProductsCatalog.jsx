@@ -1,107 +1,248 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
+import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 
+function asArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.data)) return payload.data.data;
+  return [];
+}
+
+const INITIAL_FORM = {
+  code: "",
+  barcode: "",
+  name: "",
+  short_name: "",
+  category_id: "",
+  product_type: "",
+  purchase_unit_id: "",
+  stock_unit_id: "",
+  production_unit_id: "",
+  sale_unit_id: "",
+  main_supplier_id: "",
+  shelf_life_days: "",
+  min_stock: "",
+  max_stock: "",
+  safety_stock: "",
+  reorder_point: "",
+  reorder_qty: "",
+  storage_condition: "",
+  origin: "",
+  genre: "",
+  category_type: "",
+  nature: "",
+  cold_type: "",
+  valuation_method: "",
+  default_storage_location_id: "",
+  has_batch: false,
+  has_expiry_date: false,
+  is_active: true,
+};
+
+function buildProductImageUrl(product) {
+  const base = "https://stock.dragonroyalmg.com/uploads";
+
+  if (product?.image_url) {
+    if (String(product.image_url).startsWith("http")) return product.image_url;
+    return `https://stock.dragonroyalmg.com${product.image_url.startsWith("/") ? "" : "/"}${product.image_url}`;
+  }
+
+  if (product?.image_path) {
+    return `${base}/${product.image_path}`;
+  }
+
+  return "";
+}
+
 export default function ProductsCatalog() {
+  const { user } = useAuth();
   const { suppliers, units, loading } = useReferences();
+
+  const canManage = ["pdg", "admin"].includes(user?.role);
+
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
 
-  const [form, setForm] = useState({
-    code: "",
-    barcode: "",
-    name: "",
-    short_name: "",
-    category_id: "",
-    product_type: "",
-    purchase_unit_id: "",
-    stock_unit_id: "",
-    production_unit_id: "",
-    sale_unit_id: "",
-    main_supplier_id: "",
-    shelf_life_days: "",
-    min_stock: "",
-    max_stock: "",
-    safety_stock: "",
-    reorder_point: "",
-    reorder_qty: "",
-    storage_condition: "",
-    origin: "",
-    genre: "",
-    category_type: "",
-    nature: "",
-    cold_type: "",
-    valuation_method: "",
-    default_storage_location_id: "",
-    has_batch: false,
-    has_expiry_date: false,
-    is_active: true,
-  });
-
+  const [form, setForm] = useState(INITIAL_FORM);
   const [image, setImage] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
-const loadData = async () => {
+  const isEditing = editingId !== null;
+
+  const categoryMap = useMemo(() => {
+    const map = new Map();
+    categories.forEach((c) => map.set(Number(c.id), c));
+    return map;
+  }, [categories]);
+
+  const unitMap = useMemo(() => {
+    const map = new Map();
+    units.forEach((u) => map.set(Number(u.id), u));
+    return map;
+  }, [units]);
+
+  const loadData = async () => {
     try {
-        // On lance les appels
-        const [catRes, locRes, prodRes] = await Promise.all([
-            api.get("/references/categories"),
-            api.get("/storage-zones"),
-            api.get("/products-catalog")
-        ]);
+      const [catRes, locRes, prodRes] = await Promise.all([
+        api.get("/references/categories"),
+        api.get("/storage-zones"),
+        api.get("/products-catalog"),
+      ]);
 
-        // On vérifie et on assigne les données
-        if (catRes.data) setCategories(catRes.data);
-        if (locRes.data) setLocations(locRes.data);
-        
-        // Pour la pagination Laravel, les produits sont dans .data.data
-        const actualProducts = prodRes.data?.data || prodRes.data || [];
-        setProducts(actualProducts);
-
+      setCategories(asArray(catRes.data));
+      setLocations(asArray(locRes.data));
+      setProducts(asArray(prodRes.data));
     } catch (err) {
-        // On n'affiche l'erreur que si ce n'est pas un simple problème de montage
-        if (err.response) {
-            console.error("Erreur API Détails:", err.response.status, err.config.url);
-        } else {
-            console.error("Erreur JS interne:", err.message);
-        }
-        // Ne mettez le toast que si c'est vraiment bloquant
-        // toast.error("Erreur de chargement"); 
+      console.error(err);
+      toast.error("Erreur de chargement des produits");
     }
-};
+  };
 
   useEffect(() => {
     loadData();
   }, []);
 
+  const resetForm = () => {
+    setForm(INITIAL_FORM);
+    setImage(null);
+    setEditingId(null);
+  };
+
+  const handleEdit = (product) => {
+    setEditingId(product.id);
+    setImage(null);
+
+    setForm({
+      code: product.code ?? "",
+      barcode: product.barcode ?? "",
+      name: product.name ?? "",
+      short_name: product.short_name ?? "",
+      category_id: product.category_id ? String(product.category_id) : "",
+      product_type: product.product_type ?? "",
+      purchase_unit_id: product.purchase_unit_id ? String(product.purchase_unit_id) : "",
+      stock_unit_id: product.stock_unit_id ? String(product.stock_unit_id) : "",
+      production_unit_id: product.production_unit_id ? String(product.production_unit_id) : "",
+      sale_unit_id: product.sale_unit_id ? String(product.sale_unit_id) : "",
+      main_supplier_id: product.main_supplier_id ? String(product.main_supplier_id) : "",
+      shelf_life_days:
+        product.shelf_life_days !== null && product.shelf_life_days !== undefined
+          ? String(product.shelf_life_days)
+          : "",
+      min_stock:
+        product.min_stock !== null && product.min_stock !== undefined
+          ? String(product.min_stock)
+          : "",
+      max_stock:
+        product.max_stock !== null && product.max_stock !== undefined
+          ? String(product.max_stock)
+          : "",
+      safety_stock:
+        product.safety_stock !== null && product.safety_stock !== undefined
+          ? String(product.safety_stock)
+          : "",
+      reorder_point:
+        product.reorder_point !== null && product.reorder_point !== undefined
+          ? String(product.reorder_point)
+          : "",
+      reorder_qty:
+        product.reorder_qty !== null && product.reorder_qty !== undefined
+          ? String(product.reorder_qty)
+          : "",
+      storage_condition: product.storage_condition ?? "",
+      origin: product.origin ?? "",
+      genre: product.genre ?? "",
+      category_type: product.category_type ?? "",
+      nature: product.nature ?? "",
+      cold_type: product.cold_type ?? "",
+      valuation_method: product.valuation_method ?? "",
+      default_storage_location_id: product.default_storage_location_id
+        ? String(product.default_storage_location_id)
+        : "",
+      has_batch: Boolean(product.has_batch),
+      has_expiry_date: Boolean(product.has_expiry_date),
+      is_active: Boolean(product.is_active),
+    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const submit = async (e) => {
     e.preventDefault();
 
     try {
+      setSubmitting(true);
+
       const formData = new FormData();
 
       Object.entries(form).forEach(([key, value]) => {
         formData.append(key, value ?? "");
       });
 
-      formData.set("has_batch", form.has_batch ? 1 : 0);
-      formData.set("has_expiry_date", form.has_expiry_date ? 1 : 0);
-      formData.set("is_active", form.is_active ? 1 : 0);
+      formData.set("has_batch", form.has_batch ? "1" : "0");
+      formData.set("has_expiry_date", form.has_expiry_date ? "1" : "0");
+      formData.set("is_active", form.is_active ? "1" : "0");
 
       if (image) {
         formData.append("image", image);
       }
 
-      const res = await api.post("/products-catalog", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      let res;
 
-      toast.success(res.data.message || "Produit créé");
+      if (isEditing) {
+        formData.append("_method", "PUT");
+        res = await api.post(`/products-catalog/${editingId}`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } else {
+        res = await api.post("/products-catalog", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      }
+
+      toast.success(
+        res.data?.message || (isEditing ? "Produit modifié" : "Produit créé")
+      );
+
+      resetForm();
       loadData();
     } catch (err) {
       console.error(err);
-      toast.error("Erreur création produit");
+      toast.error(
+        err?.response?.data?.message ||
+          (isEditing ? "Erreur modification produit" : "Erreur création produit")
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (product) => {
+    if (!canManage) return;
+
+    const ok = window.confirm(
+      `Voulez-vous vraiment supprimer le produit "${product.name}" ?`
+    );
+    if (!ok) return;
+
+    try {
+      setDeletingId(product.id);
+      const res = await api.delete(`/products-catalog/${product.id}`);
+      toast.success(res.data?.message || "Produit supprimé");
+      if (editingId === product.id) {
+        resetForm();
+      }
+      loadData();
+    } catch (err) {
+      console.error(err);
+      toast.error(err?.response?.data?.message || "Erreur suppression produit");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -117,110 +258,429 @@ const loadData = async () => {
       </div>
 
       <div className="rounded-2xl bg-white p-6 shadow">
-<form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-  {/* --- Informations de base --- */}
-  <input className="rounded-xl border p-3" placeholder="Code" onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Code-barres" onChange={(e) => setForm((p) => ({ ...p, barcode: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Nom" onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Nom court" onChange={(e) => setForm((p) => ({ ...p, short_name: e.target.value }))} />
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">
+              {isEditing ? "Modifier le produit" : "Nouveau produit"}
+            </h2>
+            <p className="text-sm text-slate-500">
+              Informations article, unités, stock et valorisation.
+            </p>
+          </div>
 
-  {/* --- Types et Catégories --- */}
-  <select className="rounded-xl border p-3" required onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}>
-    <option value="">Type de produit</option>
-    <option value="storable">Stockable</option>
-    <option value="consumable">Consommable</option>
-    <option value="service">Service</option>
-  </select>
+          {isEditing && (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-xl bg-slate-200 px-4 py-2 text-slate-800"
+            >
+              Annuler
+            </button>
+          )}
+        </div>
 
-<select 
-  className="rounded-xl border p-3" 
-  required // Force l'utilisateur à choisir une catégorie existante
-  onChange={(e) => setForm((p) => ({ ...p, category_id: e.target.value }))}
->
-  <option value="">-- Choisir une catégorie --</option>
-  {categories.map((c) => (
-    <option key={c.id} value={c.id}>
-      {c.name}
-    </option>
-  ))}
-</select>
+        <form
+          onSubmit={submit}
+          className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
+        >
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Code"
+            value={form.code}
+            onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
+          />
 
-  {/* --- Gestion des Unités (Crucial pour éviter l'erreur 500) --- */}
-  <select className="rounded-xl border p-3" required onChange={(e) => setForm((p) => ({ ...p, purchase_unit_id: e.target.value }))}>
-    <option value="">Unité d'achat</option>
-    {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-  </select>
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Code-barres"
+            value={form.barcode}
+            onChange={(e) => setForm((p) => ({ ...p, barcode: e.target.value }))}
+          />
 
-  <select className="rounded-xl border p-3" required onChange={(e) => setForm((p) => ({ ...p, stock_unit_id: e.target.value }))}>
-    <option value="">Unité de stock</option>
-    {units.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-  </select>
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Nom"
+            value={form.name}
+            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+          />
 
-  {/* --- Fournisseur et Emplacement --- */}
-  <select className="rounded-xl border p-3" onChange={(e) => setForm((p) => ({ ...p, main_supplier_id: e.target.value }))}>
-    <option value="">Fournisseur principal</option>
-    {suppliers.map((s) => <option key={s.id} value={s.id}>{s.company_name}</option>)}
-  </select>
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Nom court"
+            value={form.short_name}
+            onChange={(e) => setForm((p) => ({ ...p, short_name: e.target.value }))}
+          />
 
-  <select className="rounded-xl border p-3" onChange={(e) => setForm((p) => ({ ...p, default_storage_location_id: e.target.value }))}>
-    <option value="">Emplacement par défaut</option>
-    {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
-  </select>
-    <select 
-    className="rounded-xl border p-3" 
-    required 
-    onChange={(e) => setForm((p) => ({ ...p, valuation_method: e.target.value }))}
-  >
-    <option value="">Méthode de valorisation</option>
-    <option value="FIFO">FIFO (Premier entré, premier sorti)</option>
-    <option value="LIFO">LIFO (Dernier entré, premier sorti)</option>
-    <option value="AVCO">AVCO (Coût unitaire moyen pondéré)</option>
-  </select>
+          <select
+            className="rounded-xl border p-3"
+            required
+            value={form.product_type}
+            onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
+          >
+            <option value="">Type de produit</option>
+            <option value="storable">Stockable</option>
+            <option value="consumable">Consommable</option>
+            <option value="service">Service</option>
+          </select>
 
-  {/* --- Caractéristiques Produit --- */}
-  <input className="rounded-xl border p-3" placeholder="Origine" onChange={(e) => setForm((p) => ({ ...p, origin: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Genre" onChange={(e) => setForm((p) => ({ ...p, genre: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Type catégorie" onChange={(e) => setForm((p) => ({ ...p, category_type: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Nature" onChange={(e) => setForm((p) => ({ ...p, nature: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Type froid" onChange={(e) => setForm((p) => ({ ...p, cold_type: e.target.value }))} />
-  <input className="rounded-xl border p-3" placeholder="Condition stockage" onChange={(e) => setForm((p) => ({ ...p, storage_condition: e.target.value }))} />
+          <select
+            className="rounded-xl border p-3"
+            required
+            value={form.category_id}
+            onChange={(e) => setForm((p) => ({ ...p, category_id: e.target.value }))}
+          >
+            <option value="">-- Choisir une catégorie --</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
 
-  {/* --- Paramètres de Stock --- */}
-  <input type="number" className="rounded-xl border p-3" placeholder="Stock Min" onChange={(e) => setForm((p) => ({ ...p, min_stock: e.target.value }))} />
-  <input type="number" className="rounded-xl border p-3" placeholder="Stock Max" onChange={(e) => setForm((p) => ({ ...p, max_stock: e.target.value }))} />
+          <select
+            className="rounded-xl border p-3"
+            required
+            value={form.purchase_unit_id}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, purchase_unit_id: e.target.value }))
+            }
+          >
+            <option value="">Unité d'achat</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
 
-  {/* --- Image --- */}
-  <div className="flex flex-col justify-center rounded-xl border border-dashed p-2">
-    <span className="mb-1 text-xs text-gray-500">Image du produit</span>
-    <input type="file" accept="image/*" onChange={(e) => setImage(e.target.files[0])} />
-  </div>
+          <select
+            className="rounded-xl border p-3"
+            required
+            value={form.stock_unit_id}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, stock_unit_id: e.target.value }))
+            }
+          >
+            <option value="">Unité de stock</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
 
-  <button type="submit" className="rounded-xl bg-slate-900 px-4 py-3 text-white transition hover:bg-slate-800 xl:col-span-4">
-    Enregistrer le produit
-  </button>
-</form>
+          <select
+            className="rounded-xl border p-3"
+            value={form.production_unit_id}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, production_unit_id: e.target.value }))
+            }
+          >
+            <option value="">Unité de production</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="rounded-xl border p-3"
+            value={form.sale_unit_id}
+            onChange={(e) => setForm((p) => ({ ...p, sale_unit_id: e.target.value }))}
+          >
+            <option value="">Unité de vente</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="rounded-xl border p-3"
+            value={form.main_supplier_id}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, main_supplier_id: e.target.value }))
+            }
+          >
+            <option value="">Fournisseur principal</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.company_name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="rounded-xl border p-3"
+            value={form.default_storage_location_id}
+            onChange={(e) =>
+              setForm((p) => ({
+                ...p,
+                default_storage_location_id: e.target.value,
+              }))
+            }
+          >
+            <option value="">Emplacement par défaut</option>
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="rounded-xl border p-3"
+            required
+            value={form.valuation_method}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, valuation_method: e.target.value }))
+            }
+          >
+            <option value="">Méthode de valorisation</option>
+            <option value="FIFO">FIFO</option>
+            <option value="LIFO">LIFO</option>
+            <option value="AVCO">AVCO</option>
+          </select>
+
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Origine"
+            value={form.origin}
+            onChange={(e) => setForm((p) => ({ ...p, origin: e.target.value }))}
+          />
+
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Genre"
+            value={form.genre}
+            onChange={(e) => setForm((p) => ({ ...p, genre: e.target.value }))}
+          />
+
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Type catégorie"
+            value={form.category_type}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, category_type: e.target.value }))
+            }
+          />
+
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Nature"
+            value={form.nature}
+            onChange={(e) => setForm((p) => ({ ...p, nature: e.target.value }))}
+          />
+
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Type froid"
+            value={form.cold_type}
+            onChange={(e) => setForm((p) => ({ ...p, cold_type: e.target.value }))}
+          />
+
+          <input
+            className="rounded-xl border p-3"
+            placeholder="Condition stockage"
+            value={form.storage_condition}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, storage_condition: e.target.value }))
+            }
+          />
+
+          <input
+            type="number"
+            step="0.001"
+            className="rounded-xl border p-3"
+            placeholder="Durée de vie (jours)"
+            value={form.shelf_life_days}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, shelf_life_days: e.target.value }))
+            }
+          />
+
+          <input
+            type="number"
+            step="0.001"
+            className="rounded-xl border p-3"
+            placeholder="Stock Min"
+            value={form.min_stock}
+            onChange={(e) => setForm((p) => ({ ...p, min_stock: e.target.value }))}
+          />
+
+          <input
+            type="number"
+            step="0.001"
+            className="rounded-xl border p-3"
+            placeholder="Stock Max"
+            value={form.max_stock}
+            onChange={(e) => setForm((p) => ({ ...p, max_stock: e.target.value }))}
+          />
+
+          <input
+            type="number"
+            step="0.001"
+            className="rounded-xl border p-3"
+            placeholder="Stock sécurité"
+            value={form.safety_stock}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, safety_stock: e.target.value }))
+            }
+          />
+
+          <input
+            type="number"
+            step="0.001"
+            className="rounded-xl border p-3"
+            placeholder="Point de commande"
+            value={form.reorder_point}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, reorder_point: e.target.value }))
+            }
+          />
+
+          <input
+            type="number"
+            step="0.001"
+            className="rounded-xl border p-3"
+            placeholder="Qté réappro"
+            value={form.reorder_qty}
+            onChange={(e) =>
+              setForm((p) => ({ ...p, reorder_qty: e.target.value }))
+            }
+          />
+
+          <div className="flex flex-col justify-center rounded-xl border border-dashed p-2">
+            <span className="mb-1 text-xs text-gray-500">Image du produit</span>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setImage(e.target.files?.[0] || null)}
+            />
+          </div>
+
+          <label className="flex items-center gap-2 rounded-xl border p-3">
+            <input
+              type="checkbox"
+              checked={form.has_batch}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, has_batch: e.target.checked }))
+              }
+            />
+            Gestion lot
+          </label>
+
+          <label className="flex items-center gap-2 rounded-xl border p-3">
+            <input
+              type="checkbox"
+              checked={form.has_expiry_date}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, has_expiry_date: e.target.checked }))
+              }
+            />
+            Date expiration
+          </label>
+
+          <label className="flex items-center gap-2 rounded-xl border p-3">
+            <input
+              type="checkbox"
+              checked={form.is_active}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, is_active: e.target.checked }))
+              }
+            />
+            Produit actif
+          </label>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="rounded-xl bg-slate-900 px-4 py-3 text-white transition hover:bg-slate-800 disabled:opacity-60 xl:col-span-4"
+          >
+            {submitting
+              ? "Enregistrement..."
+              : isEditing
+              ? "Mettre à jour le produit"
+              : "Enregistrer le produit"}
+          </button>
+        </form>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {products.map((product) => (
-          <div key={product.id} className="rounded-2xl bg-white p-4 shadow">
-            {product.image_url ? (
-            <img 
-              src={`https://stock.dragonroyalmg.com/uploads/${product.image_path}`} 
-              alt={product.name} 
-              className="mb-3 h-40 w-full rounded-xl object-cover" />
-            ) : (
-              <div className="mb-3 flex h-40 w-full items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-                Pas d’image
-              </div>
-            )}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {products.map((product) => {
+          const imageUrl = buildProductImageUrl(product);
+          const category = categoryMap.get(Number(product.category_id));
+          const stockUnit = unitMap.get(Number(product.stock_unit_id));
 
-            <div className="font-semibold text-slate-800">{product.name}</div>
-            <div className="text-sm text-slate-500">{product.code}</div>
-            <div className="mt-2 text-xs text-slate-500">{product.origin} / {product.genre}</div>
-            <div className="text-xs text-slate-500">{product.nature} / {product.cold_type}</div>
-          </div>
-        ))}
+          return (
+            <div key={product.id} className="rounded-xl bg-white p-3 shadow">
+              {imageUrl ? (
+                <img
+                  src={imageUrl}
+                  alt={product.name}
+                  className="mb-2 h-28 w-full rounded-lg object-cover"
+                />
+              ) : (
+                <div className="mb-2 flex h-28 w-full items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">
+                  Pas d’image
+                </div>
+              )}
+
+              <div className="truncate text-sm font-semibold text-slate-800">
+                {product.name}
+              </div>
+              <div className="truncate text-xs text-slate-500">{product.code || "-"}</div>
+
+              <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+                <div>{category?.name || product.category?.name || "-"}</div>
+                <div>
+                  {product.origin || "-"} / {product.genre || "-"}
+                </div>
+                <div>
+                  {product.nature || "-"} / {product.cold_type || "-"}
+                </div>
+                <div>
+                  Unité stock : {stockUnit?.name || product.stockUnit?.name || "-"}
+                </div>
+              </div>
+
+              <div className="mt-2">
+                <span
+                  className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                    product.is_active
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {product.is_active ? "Actif" : "Inactif"}
+                </span>
+              </div>
+
+              {canManage && (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(product)}
+                    className="flex-1 rounded-lg bg-blue-600 px-2 py-2 text-xs text-white"
+                  >
+                    Éditer
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(product)}
+                    disabled={deletingId === product.id}
+                    className="flex-1 rounded-lg bg-red-600 px-2 py-2 text-xs text-white disabled:opacity-60"
+                  >
+                    {deletingId === product.id ? "..." : "Suppr."}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
