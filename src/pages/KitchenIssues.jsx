@@ -12,9 +12,23 @@ function asArray(payload) {
   return [];
 }
 
+function roundQty(value, precision = 10) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return 0;
+  return Number(num.toFixed(precision));
+}
+
+function numberToInput(value, precision = 8) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "";
+  return num.toFixed(precision).replace(/\.?0+$/, "");
+}
+
 function emptyLine() {
   return {
     product_id: "",
+    display_quantity: "",
+    display_unit_id: "",
     requested_quantity: "",
     notes: "",
   };
@@ -107,7 +121,13 @@ function buildScanUrl(issue) {
 
 export default function KitchenIssues() {
   const { user } = useAuth();
-  const { sites, warehouses, products, loading: refsLoading } = useReferences();
+  const {
+    sites,
+    warehouses,
+    products,
+    units = [],
+    loading: refsLoading,
+  } = useReferences();
 
   const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
   const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
@@ -136,6 +156,163 @@ export default function KitchenIssues() {
 
   const isEditing = editingId !== null;
 
+  const unitsById = useMemo(() => {
+    const map = new Map();
+    (units ?? []).forEach((unit) => {
+      map.set(Number(unit.id), unit);
+    });
+    return map;
+  }, [units]);
+
+  const productsById = useMemo(() => {
+    const map = new Map();
+    (products ?? []).forEach((product) => {
+      map.set(Number(product.id), product);
+    });
+    return map;
+  }, [products]);
+
+  const getUnitModel = (unitId) => {
+    return unitsById.get(Number(unitId)) || null;
+  };
+
+  const getUnitLabel = (unit) => {
+    if (!unit) return "";
+    return (
+      unit.abbreviation ||
+      unit.symbol ||
+      unit.code ||
+      unit.short_name ||
+      unit.name ||
+      ""
+    );
+  };
+
+  const getUnitRatio = (unit) => {
+    if (!unit) return 1;
+    const raw = Number(
+      unit.ratio ??
+        unit.base_ratio ??
+        unit.conversion_ratio ??
+        unit.conversion_factor ??
+        unit.value ??
+        1
+    );
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  };
+
+  const convertQuantity = (value, fromUnitId, toUnitId) => {
+    const qty = Number(value || 0);
+    if (!Number.isFinite(qty)) return 0;
+
+    const fromUnit = getUnitModel(fromUnitId);
+    const toUnit = getUnitModel(toUnitId);
+
+    if (!fromUnit || !toUnit) return qty;
+
+    const fromRatio = getUnitRatio(fromUnit);
+    const toRatio = getUnitRatio(toUnit);
+
+    return roundQty((qty * fromRatio) / toRatio, 10);
+  };
+
+  const getProductById = (productId) => {
+    return productsById.get(Number(productId)) || null;
+  };
+
+  const getProductStockUnitId = (product) => {
+    return (
+      product?.stock_unit_id ||
+      product?.purchase_unit_id ||
+      product?.sale_unit_id ||
+      ""
+    );
+  };
+
+  const getProductEntryUnitIds = (product) => {
+    if (!product) return [];
+
+    const ordered = [
+      product.sale_unit_id,
+      product.purchase_unit_id,
+      product.stock_unit_id,
+    ]
+      .filter(Boolean)
+      .map((id) => Number(id));
+
+    const unique = [...new Set(ordered)];
+
+    return unique.filter((id) => unitsById.has(Number(id)));
+  };
+
+  const getPreferredEntryUnitId = (product) => {
+    const ids = getProductEntryUnitIds(product);
+    return ids.length ? String(ids[0]) : String(getProductStockUnitId(product) || "");
+  };
+
+  const getLineProduct = (line) => {
+    return getProductById(line.product_id);
+  };
+
+  const getLineEntryUnit = (line) => {
+    const product = getLineProduct(line);
+    const unitId = line.display_unit_id || getPreferredEntryUnitId(product);
+    return getUnitModel(unitId);
+  };
+
+  const getLineStockUnit = (line) => {
+    const product = getLineProduct(line);
+    return getUnitModel(getProductStockUnitId(product));
+  };
+
+  const computeRequestedQuantity = (line) => {
+    const product = getLineProduct(line);
+    if (!product) {
+      return Number(line.requested_quantity || 0);
+    }
+
+    const stockUnitId = getProductStockUnitId(product);
+    const entryUnitId = line.display_unit_id || getPreferredEntryUnitId(product);
+
+    const qty = Number(line.display_quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) return 0;
+
+    if (!stockUnitId || !entryUnitId) return roundQty(qty, 10);
+
+    return convertQuantity(qty, entryUnitId, stockUnitId);
+  };
+
+  const buildLineFromExisting = (rawLine) => {
+    const product = getProductById(rawLine.product_id);
+    const preferredEntryUnitId = getPreferredEntryUnitId(product);
+    const stockUnitId = getProductStockUnitId(product);
+    const stockQty = Number(rawLine.requested_quantity ?? 0);
+
+    let displayQuantity = "";
+    if (stockQty > 0) {
+      if (preferredEntryUnitId && stockUnitId) {
+        displayQuantity = numberToInput(
+          convertQuantity(stockQty, stockUnitId, preferredEntryUnitId),
+          8
+        );
+      } else {
+        displayQuantity = numberToInput(stockQty, 8);
+      }
+    }
+
+    return {
+      product_id: rawLine.product_id ? String(rawLine.product_id) : "",
+      display_unit_id: preferredEntryUnitId || "",
+      display_quantity: displayQuantity,
+      requested_quantity:
+        rawLine.requested_quantity !== null &&
+        rawLine.requested_quantity !== undefined
+          ? String(rawLine.requested_quantity)
+          : "",
+      notes: rawLine.notes || "",
+    };
+  };
+
   const visibleSites = useMemo(() => {
     if (isRestrictedSiteUser) {
       return (sites ?? []).filter((s) => Number(s.id) === Number(restrictedSiteId));
@@ -143,7 +320,8 @@ export default function KitchenIssues() {
     return sites ?? [];
   }, [sites, isRestrictedSiteUser, restrictedSiteId]);
 
-  const effectiveFormSiteId = form.site_id || (isRestrictedSiteUser ? restrictedSiteId : "");
+  const effectiveFormSiteId =
+    form.site_id || (isRestrictedSiteUser ? restrictedSiteId : "");
 
   const currentSiteWarehouses = useMemo(() => {
     if (!effectiveFormSiteId) return warehouses ?? [];
@@ -376,19 +554,101 @@ export default function KitchenIssues() {
       notes: issue.notes || "",
       lines:
         (issue.lines ?? []).length > 0
-          ? issue.lines.map((line) => ({
-              product_id: line.product_id ? String(line.product_id) : "",
-              requested_quantity:
-                line.requested_quantity !== null &&
-                line.requested_quantity !== undefined
-                  ? String(line.requested_quantity)
-                  : "",
-              notes: line.notes || "",
-            }))
+          ? issue.lines.map((line) => buildLineFromExisting(line))
           : [emptyLine()],
     });
 
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleProductChange = (index, productId) => {
+    const product = getProductById(productId);
+    const preferredUnitId = getPreferredEntryUnitId(product);
+
+    setForm((prev) => {
+      const lines = [...prev.lines];
+      lines[index] = {
+        ...lines[index],
+        product_id: productId,
+        display_unit_id: preferredUnitId,
+        display_quantity: "",
+        requested_quantity: "",
+      };
+      return { ...prev, lines };
+    });
+  };
+
+  const handleDisplayQuantityChange = (index, value) => {
+    setForm((prev) => {
+      const lines = [...prev.lines];
+      const line = { ...lines[index], display_quantity: value };
+
+      const requestedQty = computeRequestedQuantity(line);
+      line.requested_quantity =
+        value && requestedQty > 0 ? String(requestedQty) : "";
+
+      lines[index] = line;
+      return { ...prev, lines };
+    });
+  };
+
+  const handleDisplayUnitChange = (index, newUnitId) => {
+    setForm((prev) => {
+      const lines = [...prev.lines];
+      const currentLine = lines[index];
+      const product = getLineProduct(currentLine);
+
+      let nextDisplayQuantity = currentLine.display_quantity;
+
+      if (product) {
+        const oldUnitId =
+          currentLine.display_unit_id || getPreferredEntryUnitId(product);
+        const stockUnitId = getProductStockUnitId(product);
+
+        if (
+          currentLine.display_quantity !== "" &&
+          oldUnitId &&
+          newUnitId &&
+          Number(currentLine.display_quantity) > 0
+        ) {
+          nextDisplayQuantity = numberToInput(
+            convertQuantity(
+              Number(currentLine.display_quantity),
+              oldUnitId,
+              newUnitId
+            ),
+            8
+          );
+        } else if (
+          currentLine.requested_quantity !== "" &&
+          stockUnitId &&
+          newUnitId &&
+          Number(currentLine.requested_quantity) > 0
+        ) {
+          nextDisplayQuantity = numberToInput(
+            convertQuantity(
+              Number(currentLine.requested_quantity),
+              stockUnitId,
+              newUnitId
+            ),
+            8
+          );
+        }
+      }
+
+      const nextLine = {
+        ...currentLine,
+        display_unit_id: newUnitId,
+        display_quantity: nextDisplayQuantity,
+      };
+
+      const requestedQty = computeRequestedQuantity(nextLine);
+      nextLine.requested_quantity =
+        nextDisplayQuantity && requestedQty > 0 ? String(requestedQty) : "";
+
+      lines[index] = nextLine;
+      return { ...prev, lines };
+    });
   };
 
   const updateLine = (index, field, value) => {
@@ -426,9 +686,20 @@ export default function KitchenIssues() {
       return;
     }
 
-    const validLines = form.lines.filter(
-      (line) => line.product_id && Number(line.requested_quantity) > 0
-    );
+    const validLines = form.lines
+      .map((line) => {
+        const requestedQty = computeRequestedQuantity(line);
+        return {
+          ...line,
+          requested_quantity_numeric: requestedQty,
+        };
+      })
+      .filter(
+        (line) =>
+          line.product_id &&
+          Number(line.display_quantity || 0) > 0 &&
+          Number(line.requested_quantity_numeric || 0) > 0
+      );
 
     if (validLines.length === 0) {
       toast.error("Ajoutez au moins une ligne valide.");
@@ -445,7 +716,7 @@ export default function KitchenIssues() {
         notes: form.notes || "",
         lines: validLines.map((line) => ({
           product_id: Number(line.product_id),
-          requested_quantity: Number(line.requested_quantity),
+          requested_quantity: Number(line.requested_quantity_numeric),
           notes: line.notes || "",
         })),
       };
@@ -527,13 +798,32 @@ export default function KitchenIssues() {
 
   const totalEstimated = useMemo(() => {
     return form.lines.reduce((sum, line) => {
-      const product = (products ?? []).find(
-        (p) => Number(p.id) === Number(line.product_id)
-      );
+      const product = getLineProduct(line);
       const price = Number(product?.last_purchase_price ?? 0);
-      return sum + Number(line.requested_quantity || 0) * price;
+      const requestedQty = computeRequestedQuantity(line);
+      return sum + requestedQty * price;
     }, 0);
-  }, [form.lines, products]);
+  }, [form.lines, products, units]);
+
+  const getLineStockUnitLabel = (line) => {
+    const stockUnit = getLineStockUnit(line);
+    return getUnitLabel(stockUnit);
+  };
+
+  const getLineEntryUnitOptions = (line) => {
+    const product = getLineProduct(line);
+    return getProductEntryUnitIds(product)
+      .map((unitId) => getUnitModel(unitId))
+      .filter(Boolean);
+  };
+
+  const getIssueLineUnitLabel = (line) => {
+    const product = line?.product || getProductById(line?.product_id);
+    const stockUnit = getUnitModel(
+      product?.stock_unit_id || product?.purchase_unit_id || product?.sale_unit_id
+    );
+    return getUnitLabel(stockUnit);
+  };
 
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
@@ -656,67 +946,115 @@ export default function KitchenIssues() {
               </div>
 
               <div className="space-y-3">
-                {form.lines.map((line, index) => (
-                  <div
-                    key={index}
-                    className="grid grid-cols-1 gap-3 rounded-xl border p-3 lg:grid-cols-12"
-                  >
-                    <div className="lg:col-span-5">
-                      <select
-                        className="w-full rounded-xl border p-3"
-                        value={line.product_id}
-                        onChange={(e) =>
-                          updateLine(index, "product_id", e.target.value)
-                        }
-                      >
-                        <option value="">Produit</option>
-                        {(products ?? []).map((product) => (
-                          <option key={product.id} value={product.id}>
-                            {product.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                {form.lines.map((line, index) => {
+                  const product = getLineProduct(line);
+                  const entryUnit = getLineEntryUnit(line);
+                  const stockUnit = getLineStockUnit(line);
+                  const entryUnitOptions = getLineEntryUnitOptions(line);
+                  const computedRequestedQty = computeRequestedQuantity(line);
 
-                    <div className="lg:col-span-3">
-                      <input
-                        type="number"
-                        step="0.001"
-                        className="w-full rounded-xl border p-3"
-                        placeholder="Quantité demandée"
-                        value={line.requested_quantity}
-                        onChange={(e) =>
-                          updateLine(index, "requested_quantity", e.target.value)
-                        }
-                      />
-                    </div>
+                  return (
+                    <div
+                      key={index}
+                      className="grid grid-cols-1 gap-3 rounded-xl border p-3 lg:grid-cols-12"
+                    >
+                      <div className="lg:col-span-4">
+                        <select
+                          className="w-full rounded-xl border p-3"
+                          value={line.product_id}
+                          onChange={(e) =>
+                            handleProductChange(index, e.target.value)
+                          }
+                        >
+                          <option value="">Produit</option>
+                          {(products ?? []).map((productItem) => (
+                            <option key={productItem.id} value={productItem.id}>
+                              {productItem.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                    <div className="lg:col-span-3">
-                      <input
-                        className="w-full rounded-xl border p-3"
-                        placeholder="Notes ligne"
-                        value={line.notes}
-                        onChange={(e) => updateLine(index, "notes", e.target.value)}
-                      />
-                    </div>
+                      <div className="lg:col-span-3">
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            step="0.001"
+                            className="w-full rounded-xl border p-3"
+                            placeholder="Quantité"
+                            value={line.display_quantity}
+                            onChange={(e) =>
+                              handleDisplayQuantityChange(index, e.target.value)
+                            }
+                          />
+                          <div className="min-w-[92px] rounded-xl bg-slate-100 px-3 py-3 text-sm font-medium text-slate-700 flex items-center justify-center">
+                            {getUnitLabel(entryUnit) || "Unité"}
+                          </div>
+                        </div>
 
-                    <div className="lg:col-span-1">
-                      <button
-                        type="button"
-                        onClick={() => removeLine(index)}
-                        disabled={form.lines.length === 1}
-                        className="w-full rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
-                      >
-                        X
-                      </button>
+                        {product && (
+                          <div className="mt-2 space-y-2">
+                            {entryUnitOptions.length > 1 && (
+                              <select
+                                className="w-full rounded-xl border p-2 text-sm"
+                                value={line.display_unit_id || ""}
+                                onChange={(e) =>
+                                  handleDisplayUnitChange(index, e.target.value)
+                                }
+                              >
+                                {entryUnitOptions.map((unit) => (
+                                  <option key={unit.id} value={unit.id}>
+                                    Saisie en {getUnitLabel(unit)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+
+                            <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                              Stock enregistré :{" "}
+                              <strong>
+                                {computedRequestedQty > 0
+                                  ? formatQty(computedRequestedQty)
+                                  : "0"}
+                              </strong>{" "}
+                              {getUnitLabel(stockUnit)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="lg:col-span-4">
+                        <input
+                          className="w-full rounded-xl border p-3"
+                          placeholder="Notes ligne"
+                          value={line.notes}
+                          onChange={(e) => updateLine(index, "notes", e.target.value)}
+                        />
+                      </div>
+
+                      <div className="lg:col-span-1">
+                        <button
+                          type="button"
+                          onClick={() => removeLine(index)}
+                          disabled={form.lines.length === 1}
+                          className="w-full rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
+                        >
+                          X
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
                 Estimation indicative :{" "}
                 <strong>{formatMoney(totalEstimated)} Ar</strong>
+              </div>
+
+              <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+                Astuce : le chef saisit la quantité dans l’unité pratique affichée.
+                Le système convertit automatiquement vers l’unité de stock.
               </div>
             </div>
 
@@ -754,7 +1092,7 @@ export default function KitchenIssues() {
                 Historique BSC
               </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Impression, scan rapide, édition avant sortie et suivi des états.
+                Impression ticket, scan rapide, édition avant sortie et suivi des états.
               </p>
             </div>
 
@@ -890,7 +1228,7 @@ export default function KitchenIssues() {
                           }}
                           className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white"
                         >
-                          Imprimer
+                          Imprimer ticket
                         </button>
 
                         <button
@@ -1052,7 +1390,7 @@ export default function KitchenIssues() {
                                 }
                                 className="rounded-xl bg-slate-900 px-4 py-2 text-white"
                               >
-                                Imprimer
+                                Imprimer ticket
                               </button>
 
                               <button
@@ -1088,34 +1426,38 @@ export default function KitchenIssues() {
                             </tr>
                           </thead>
                           <tbody>
-                            {(selectedIssue.lines ?? []).map((line) => (
-                              <tr
-                                key={line.id}
-                                className="border-b border-slate-100 hover:bg-slate-50"
-                              >
-                                <td className="px-4 py-3">
-                                  {line.product?.name || "-"}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {formatQty(line.requested_quantity)}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {formatQty(line.issued_quantity)}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {formatQty(line.received_quantity)}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {formatQty(line.rejected_quantity)}
-                                </td>
-                                <td className="px-4 py-3">
-                                  {line.unit_cost !== null &&
-                                  line.unit_cost !== undefined
-                                    ? `${formatMoney(line.unit_cost)} Ar`
-                                    : "-"}
-                                </td>
-                              </tr>
-                            ))}
+                            {(selectedIssue.lines ?? []).map((line) => {
+                              const unitLabel = getIssueLineUnitLabel(line);
+
+                              return (
+                                <tr
+                                  key={line.id}
+                                  className="border-b border-slate-100 hover:bg-slate-50"
+                                >
+                                  <td className="px-4 py-3">
+                                    {line.product?.name || "-"}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {formatQty(line.requested_quantity)} {unitLabel}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {formatQty(line.issued_quantity)} {unitLabel}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {formatQty(line.received_quantity)} {unitLabel}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {formatQty(line.rejected_quantity)} {unitLabel}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {line.unit_cost !== null &&
+                                    line.unit_cost !== undefined
+                                      ? `${formatMoney(line.unit_cost)} Ar`
+                                      : "-"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
