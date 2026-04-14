@@ -232,7 +232,7 @@ export default function Stock() {
                     {item.warehouse?.name ?? item.warehouse_id}
                   </td>
                   <td className="px-4 py-3">
-                    {formatQty(item.quantity_on_hand)} {getUnitName(item)}
+                    {item.quantity_on_hand} {getUnitName(item)}
                   </td>
                   <td className="px-4 py-3">
                     {formatQty(item.quantity_available)}
