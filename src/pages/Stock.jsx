@@ -4,6 +4,14 @@ import useReferences from "../hooks/useReferences";
 import { useAuth } from "../context/AuthContext";
 import { formatQty, formatMoney } from "../utils/formatters";
 
+function getTodayYmd() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export default function Stock() {
   const { sites, warehouses, units, loading: refsLoading } = useReferences();
   const { user } = useAuth();
@@ -13,6 +21,7 @@ export default function Stock() {
   const [filters, setFilters] = useState({
     site_id: "",
     warehouse_id: "",
+    report_date: getTodayYmd(),
   });
 
   const isStockSiteUser = user?.role === "stock";
@@ -49,6 +58,7 @@ export default function Stock() {
 
       if (effectiveSiteId) params.site_id = effectiveSiteId;
       if (customFilters.warehouse_id) params.warehouse_id = customFilters.warehouse_id;
+      if (customFilters.report_date) params.report_date = customFilters.report_date;
 
       const res = await api.get("/stock-levels", { params });
 
@@ -71,12 +81,18 @@ export default function Stock() {
       const nextFilters = {
         site_id: String(user.site_id),
         warehouse_id: "",
+        report_date: getTodayYmd(),
       };
       setFilters(nextFilters);
       loadStock(nextFilters);
     } else {
-      loadStock();
+      loadStock({
+        site_id: "",
+        warehouse_id: "",
+        report_date: getTodayYmd(),
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   useEffect(() => {
@@ -135,6 +151,55 @@ export default function Stock() {
     );
   };
 
+  const getOpeningQty = (item) => {
+    return Number(
+      item.opening_quantity ??
+        item.initial_quantity ??
+        item.start_quantity ??
+        item.quantity_on_hand ??
+        0
+    );
+  };
+
+  const getIncomingQty = (item) => {
+    return Number(
+      item.incoming_quantity ??
+        item.entries_quantity ??
+        item.total_in ??
+        item.movement_in ??
+        0
+    );
+  };
+
+  const getOutgoingQty = (item) => {
+    return Number(
+      item.outgoing_quantity ??
+        item.exits_quantity ??
+        item.total_out ??
+        item.movement_out ??
+        0
+    );
+  };
+
+  const getClosingQty = (item) => {
+    return Number(
+      item.closing_quantity ??
+        item.final_quantity ??
+        item.end_quantity ??
+        item.quantity_on_hand ??
+        0
+    );
+  };
+
+  const getNextDayOpeningQty = (item) => {
+    return Number(
+      item.next_day_opening_quantity ??
+        item.reported_opening_quantity ??
+        item.next_opening_quantity ??
+        getClosingQty(item)
+    );
+  };
+
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
   }
@@ -144,14 +209,14 @@ export default function Stock() {
       <div>
         <h1 className="text-3xl font-bold text-slate-800">Stock par dépôt</h1>
         <p className="text-slate-500">
-          Vue stock filtrée par site, dépôt et alertes visuelles.
+          Vue stock filtrée par site, dépôt et report automatique du stock final vers le stock initial du lendemain.
         </p>
       </div>
 
       <div className="rounded-2xl bg-white p-5 shadow">
         <h2 className="mb-4 text-xl font-semibold text-slate-800">Filtres</h2>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <select
             className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
             value={filters.site_id}
@@ -179,12 +244,23 @@ export default function Stock() {
             ))}
           </select>
 
+          <input
+            type="date"
+            className="rounded-xl border p-3"
+            value={filters.report_date}
+            onChange={(e) => handleChange("report_date", e.target.value)}
+          />
+
           <button
             onClick={applyFilters}
             className="rounded-xl bg-slate-900 px-4 py-2 text-white"
           >
             Appliquer
           </button>
+        </div>
+
+        <div className="mt-4 rounded-xl bg-blue-50 p-3 text-sm text-blue-700">
+          Règle de report : <strong>Stock final du jour = Stock initial du lendemain</strong>.
         </div>
       </div>
 
@@ -208,7 +284,11 @@ export default function Stock() {
                 <th className="px-4 py-3">Catégorie</th>
                 <th className="px-4 py-3">Site</th>
                 <th className="px-4 py-3">Dépôt</th>
-                <th className="px-4 py-3">Stock</th>
+                <th className="px-4 py-3">Stock initial</th>
+                <th className="px-4 py-3">Entrées</th>
+                <th className="px-4 py-3">Sorties</th>
+                <th className="px-4 py-3">Stock final</th>
+                <th className="px-4 py-3">Report J+1</th>
                 <th className="px-4 py-3">Disponible</th>
                 <th className="px-4 py-3">Min</th>
                 <th className="px-4 py-3">Reorder</th>
@@ -232,7 +312,19 @@ export default function Stock() {
                     {item.warehouse?.name ?? item.warehouse_id}
                   </td>
                   <td className="px-4 py-3">
-                    {item.quantity_on_hand} {getUnitName(item)}
+                    {formatQty(getOpeningQty(item))} {getUnitName(item)}
+                  </td>
+                  <td className="px-4 py-3 text-emerald-700">
+                    {formatQty(getIncomingQty(item))} {getUnitName(item)}
+                  </td>
+                  <td className="px-4 py-3 text-red-700">
+                    {formatQty(getOutgoingQty(item))} {getUnitName(item)}
+                  </td>
+                  <td className="px-4 py-3 font-semibold">
+                    {formatQty(getClosingQty(item))} {getUnitName(item)}
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-blue-700">
+                    {formatQty(getNextDayOpeningQty(item))} {getUnitName(item)}
                   </td>
                   <td className="px-4 py-3">
                     {formatQty(item.quantity_available)}
@@ -273,7 +365,7 @@ export default function Stock() {
 
               {stocks.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={15} className="px-4 py-6 text-center text-slate-500">
                     Aucun stock trouvé pour ces filtres.
                   </td>
                 </tr>
