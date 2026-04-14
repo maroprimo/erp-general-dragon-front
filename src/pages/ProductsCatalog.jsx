@@ -43,18 +43,14 @@ const INITIAL_FORM = {
 };
 
 function buildProductImageUrl(product) {
-  const base = "https://stock.dragonroyalmg.com/uploads";
+  if (!product?.image_path) return "";
 
-  if (product?.image_url) {
-    if (String(product.image_url).startsWith("http")) return product.image_url;
-    return `https://stock.dragonroyalmg.com${product.image_url.startsWith("/") ? "" : "/"}${product.image_url}`;
-  }
+  const cleanPath = String(product.image_path)
+    .replace(/^\/+/, "")
+    .replace(/^storage\//, "")
+    .replace(/^uploads\//, "");
 
-  if (product?.image_path) {
-    return `${base}/${product.image_path}`;
-  }
-
-  return "";
+  return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
 }
 
 export default function ProductsCatalog() {
@@ -616,17 +612,17 @@ export default function ProductsCatalog() {
 
           return (
             <div key={product.id} className="rounded-xl bg-white p-3 shadow">
-              {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt={product.name}
-                  className="mb-2 h-28 w-full rounded-lg object-cover"
-                />
-              ) : (
-                <div className="mb-2 flex h-28 w-full items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">
-                  Pas d’image
-                </div>
-              )}
+            {imageUrl ? (
+              <img
+                src={imageUrl}
+                alt={product.name}
+                className="mb-2 h-28 w-full rounded-lg object-cover"
+              />
+            ) : (
+              <div className="mb-2 flex h-28 w-full items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">
+                Pas d’image
+              </div>
+            )}
 
               <div className="truncate text-sm font-semibold text-slate-800">
                 {product.name}
