@@ -192,13 +192,59 @@ export default function KitchenIssues() {
     if (!unit) return 1;
     const raw = Number(
       unit.ratio ??
+        unit.ratio_base ??
         unit.base_ratio ??
         unit.conversion_ratio ??
         unit.conversion_factor ??
-        unit.value ??
         1
     );
     return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  };
+
+  const getProductById = (productId) => {
+    return productsById.get(Number(productId)) || null;
+  };
+
+  const getProductUnitId = (product, type) => {
+    if (!product) return "";
+    return (
+      product?.[`${type}_unit_id`] ||
+      product?.[`${type}UnitId`] ||
+      product?.[`${type}_unit`]?.id ||
+      product?.[`${type}Unit`]?.id ||
+      ""
+    );
+  };
+
+  const getProductStockUnitId = (product) => {
+    return (
+      getProductUnitId(product, "stock") ||
+      getProductUnitId(product, "purchase") ||
+      getProductUnitId(product, "sale") ||
+      getProductUnitId(product, "production") ||
+      ""
+    );
+  };
+
+  const getProductEntryUnitIds = (product) => {
+    if (!product) return [];
+
+    const ordered = [
+      getProductUnitId(product, "sale"),
+      getProductUnitId(product, "production"),
+      getProductUnitId(product, "purchase"),
+      getProductUnitId(product, "stock"),
+    ]
+      .filter(Boolean)
+      .map((id) => Number(id));
+
+    const unique = [...new Set(ordered)];
+    return unique.filter((id) => unitsById.has(Number(id)));
+  };
+
+  const getPreferredEntryUnitId = (product) => {
+    const ids = getProductEntryUnitIds(product);
+    return ids.length ? String(ids[0]) : String(getProductStockUnitId(product) || "");
   };
 
   const convertQuantity = (value, fromUnitId, toUnitId) => {
@@ -216,43 +262,7 @@ export default function KitchenIssues() {
     return roundQty((qty * fromRatio) / toRatio, 10);
   };
 
-  const getProductById = (productId) => {
-    return productsById.get(Number(productId)) || null;
-  };
-
-  const getProductStockUnitId = (product) => {
-    return (
-      product?.stock_unit_id ||
-      product?.purchase_unit_id ||
-      product?.sale_unit_id ||
-      ""
-    );
-  };
-
-  const getProductEntryUnitIds = (product) => {
-    if (!product) return [];
-
-    const ordered = [
-      product.sale_unit_id,
-      product.purchase_unit_id,
-      product.stock_unit_id,
-    ]
-      .filter(Boolean)
-      .map((id) => Number(id));
-
-    const unique = [...new Set(ordered)];
-
-    return unique.filter((id) => unitsById.has(Number(id)));
-  };
-
-  const getPreferredEntryUnitId = (product) => {
-    const ids = getProductEntryUnitIds(product);
-    return ids.length ? String(ids[0]) : String(getProductStockUnitId(product) || "");
-  };
-
-  const getLineProduct = (line) => {
-    return getProductById(line.product_id);
-  };
+  const getLineProduct = (line) => getProductById(line.product_id);
 
   const getLineEntryUnit = (line) => {
     const product = getLineProduct(line);
@@ -267,19 +277,28 @@ export default function KitchenIssues() {
 
   const computeRequestedQuantity = (line) => {
     const product = getLineProduct(line);
-    if (!product) {
-      return Number(line.requested_quantity || 0);
-    }
+    if (!product) return Number(line.requested_quantity || 0);
 
-    const stockUnitId = getProductStockUnitId(product);
     const entryUnitId = line.display_unit_id || getPreferredEntryUnitId(product);
-
+    const stockUnitId = getProductStockUnitId(product);
     const qty = Number(line.display_quantity || 0);
-    if (!Number.isFinite(qty) || qty <= 0) return 0;
 
-    if (!stockUnitId || !entryUnitId) return roundQty(qty, 10);
+    if (!Number.isFinite(qty) || qty <= 0) return 0;
+    if (!entryUnitId || !stockUnitId) return roundQty(qty, 10);
 
     return convertQuantity(qty, entryUnitId, stockUnitId);
+  };
+
+  const getConversionHint = (line) => {
+    const entryUnit = getLineEntryUnit(line);
+    const stockUnit = getLineStockUnit(line);
+
+    if (!entryUnit || !stockUnit) return "";
+
+    const oneEntryInStock = convertQuantity(1, entryUnit.id, stockUnit.id);
+    if (!Number.isFinite(oneEntryInStock)) return "";
+
+    return `1 ${getUnitLabel(entryUnit)} = ${formatQty(oneEntryInStock)} ${getUnitLabel(stockUnit)}`;
   };
 
   const buildLineFromExisting = (rawLine) => {
@@ -612,11 +631,7 @@ export default function KitchenIssues() {
           Number(currentLine.display_quantity) > 0
         ) {
           nextDisplayQuantity = numberToInput(
-            convertQuantity(
-              Number(currentLine.display_quantity),
-              oldUnitId,
-              newUnitId
-            ),
+            convertQuantity(Number(currentLine.display_quantity), oldUnitId, newUnitId),
             8
           );
         } else if (
@@ -626,11 +641,7 @@ export default function KitchenIssues() {
           Number(currentLine.requested_quantity) > 0
         ) {
           nextDisplayQuantity = numberToInput(
-            convertQuantity(
-              Number(currentLine.requested_quantity),
-              stockUnitId,
-              newUnitId
-            ),
+            convertQuantity(Number(currentLine.requested_quantity), stockUnitId, newUnitId),
             8
           );
         }
@@ -819,9 +830,7 @@ export default function KitchenIssues() {
 
   const getIssueLineUnitLabel = (line) => {
     const product = line?.product || getProductById(line?.product_id);
-    const stockUnit = getUnitModel(
-      product?.stock_unit_id || product?.purchase_unit_id || product?.sale_unit_id
-    );
+    const stockUnit = getUnitModel(getProductStockUnitId(product));
     return getUnitLabel(stockUnit);
   };
 
@@ -952,34 +961,35 @@ export default function KitchenIssues() {
                   const stockUnit = getLineStockUnit(line);
                   const entryUnitOptions = getLineEntryUnitOptions(line);
                   const computedRequestedQty = computeRequestedQuantity(line);
+                  const conversionHint = getConversionHint(line);
 
                   return (
                     <div
                       key={index}
-                      className="grid grid-cols-1 gap-3 rounded-xl border p-3 lg:grid-cols-12"
+                      className="rounded-xl border p-3"
                     >
-                      <div className="lg:col-span-4">
-                        <select
-                          className="w-full rounded-xl border p-3"
-                          value={line.product_id}
-                          onChange={(e) =>
-                            handleProductChange(index, e.target.value)
-                          }
-                        >
-                          <option value="">Produit</option>
-                          {(products ?? []).map((productItem) => (
-                            <option key={productItem.id} value={productItem.id}>
-                              {productItem.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+                        <div className="lg:col-span-4">
+                          <select
+                            className="w-full rounded-xl border p-3"
+                            value={line.product_id}
+                            onChange={(e) =>
+                              handleProductChange(index, e.target.value)
+                            }
+                          >
+                            <option value="">Produit</option>
+                            {(products ?? []).map((productItem) => (
+                              <option key={productItem.id} value={productItem.id}>
+                                {productItem.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                      <div className="lg:col-span-3">
-                        <div className="flex gap-2">
+                        <div className="lg:col-span-3">
                           <input
                             type="number"
-                            step="0.001"
+                            step="0.000001"
                             className="w-full rounded-xl border p-3"
                             placeholder="Quantité"
                             value={line.display_quantity}
@@ -987,61 +997,67 @@ export default function KitchenIssues() {
                               handleDisplayQuantityChange(index, e.target.value)
                             }
                           />
-                          <div className="min-w-[92px] rounded-xl bg-slate-100 px-3 py-3 text-sm font-medium text-slate-700 flex items-center justify-center">
-                            {getUnitLabel(entryUnit) || "Unité"}
-                          </div>
                         </div>
 
-                        {product && (
-                          <div className="mt-2 space-y-2">
-                            {entryUnitOptions.length > 1 && (
-                              <select
-                                className="w-full rounded-xl border p-2 text-sm"
-                                value={line.display_unit_id || ""}
-                                onChange={(e) =>
-                                  handleDisplayUnitChange(index, e.target.value)
-                                }
-                              >
-                                {entryUnitOptions.map((unit) => (
-                                  <option key={unit.id} value={unit.id}>
-                                    Saisie en {getUnitLabel(unit)}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
+                        <div className="lg:col-span-2">
+                          <select
+                            className="w-full rounded-xl border p-3"
+                            value={line.display_unit_id || ""}
+                            onChange={(e) =>
+                              handleDisplayUnitChange(index, e.target.value)
+                            }
+                            disabled={entryUnitOptions.length <= 1}
+                          >
+                            <option value="">Unité</option>
+                            {entryUnitOptions.map((unit) => (
+                              <option key={unit.id} value={unit.id}>
+                                {getUnitLabel(unit)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                            <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                              Stock enregistré :{" "}
-                              <strong>
-                                {computedRequestedQty > 0
-                                  ? formatQty(computedRequestedQty)
-                                  : "0"}
-                              </strong>{" "}
-                              {getUnitLabel(stockUnit)}
-                            </div>
+                        <div className="lg:col-span-2">
+                          <input
+                            className="w-full rounded-xl border p-3"
+                            placeholder="Notes ligne"
+                            value={line.notes}
+                            onChange={(e) => updateLine(index, "notes", e.target.value)}
+                          />
+                        </div>
+
+                        <div className="lg:col-span-1">
+                          <button
+                            type="button"
+                            onClick={() => removeLine(index)}
+                            disabled={form.lines.length === 1}
+                            className="w-full rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
+                          >
+                            X
+                          </button>
+                        </div>
+                      </div>
+
+                      {product && (
+                        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+                          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            <span className="font-semibold">Unité saisie :</span>{" "}
+                            {getUnitLabel(entryUnit) || "-"}
                           </div>
-                        )}
-                      </div>
 
-                      <div className="lg:col-span-4">
-                        <input
-                          className="w-full rounded-xl border p-3"
-                          placeholder="Notes ligne"
-                          value={line.notes}
-                          onChange={(e) => updateLine(index, "notes", e.target.value)}
-                        />
-                      </div>
+                          <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                            <span className="font-semibold">Équiv. stock :</span>{" "}
+                            {computedRequestedQty > 0
+                              ? `${formatQty(computedRequestedQty)} ${getUnitLabel(stockUnit)}`
+                              : `0 ${getUnitLabel(stockUnit)}`}
+                          </div>
 
-                      <div className="lg:col-span-1">
-                        <button
-                          type="button"
-                          onClick={() => removeLine(index)}
-                          disabled={form.lines.length === 1}
-                          className="w-full rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
-                        >
-                          X
-                        </button>
-                      </div>
+                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                            <span className="font-semibold">Conversion :</span>{" "}
+                            {conversionHint || "-"}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1053,8 +1069,8 @@ export default function KitchenIssues() {
               </div>
 
               <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
-                Astuce : le chef saisit la quantité dans l’unité pratique affichée.
-                Le système convertit automatiquement vers l’unité de stock.
+                Astuce : le chef saisit la quantité dans l’unité pratique.  
+                Le système convertit automatiquement vers l’unité de stock réelle.
               </div>
             </div>
 
