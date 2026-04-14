@@ -376,7 +376,10 @@ export default function PurchaseDocuments() {
 
       if (poRes.status === "rejected") console.error("Erreur BC:", poRes.reason);
       if (grRes.status === "rejected") console.error("Erreur BR:", grRes.reason);
-      if (invRes.status === "rejected") console.error("Erreur Factures:", invRes.reason);
+      if (invRes.status === "rejected") {
+        console.error("Erreur Factures:", invRes.reason);
+        toast.error("Erreur chargement des factures fournisseurs");
+      }
 
       let normalized = [
         ...normalizePurchaseOrders(purchaseOrders),
