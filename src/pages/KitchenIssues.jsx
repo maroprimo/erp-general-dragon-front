@@ -121,13 +121,15 @@ function buildScanUrl(issue) {
 
 export default function KitchenIssues() {
   const { user } = useAuth();
-  const {
-    sites,
-    warehouses,
-    products,
-    units = [],
-    loading: refsLoading,
-  } = useReferences();
+const {
+  sites,
+  warehouses,
+  products,
+  units: hookUnits = [],
+  loading: refsLoading,
+} = useReferences();
+
+const [fullUnits, setFullUnits] = useState([]);
 
   const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
   const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
@@ -154,15 +156,58 @@ export default function KitchenIssues() {
     lines: [emptyLine()],
   });
 
-  const isEditing = editingId !== null;
 
-  const unitsById = useMemo(() => {
-    const map = new Map();
-    (units ?? []).forEach((unit) => {
-      map.set(Number(unit.id), unit);
-    });
-    return map;
-  }, [units]);
+  useEffect(() => {
+  let mounted = true;
+
+  const loadFullUnits = async () => {
+    try {
+      const res = await api.get("/units");
+      const rows = asArray(res.data);
+
+      if (mounted && Array.isArray(rows)) {
+        setFullUnits(rows);
+      }
+    } catch (err) {
+      console.error("Erreur chargement complet des unités:", err);
+      if (mounted) {
+        setFullUnits([]);
+      }
+    }
+  };
+
+  loadFullUnits();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
+  const isEditing = editingId !== null;
+const effectiveUnits = useMemo(() => {
+  return fullUnits.length > 0 ? fullUnits : hookUnits;
+}, [fullUnits, hookUnits]);
+
+const parseRatioValue = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+
+  const cleaned = String(value)
+    .trim()
+    .replace(/\s+/g, "")
+    .replace(",", ".");
+
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const unitsById = useMemo(() => {
+  const map = new Map();
+
+  (effectiveUnits ?? []).forEach((unit) => {
+    map.set(Number(unit.id), unit);
+  });
+
+  return map;
+}, [effectiveUnits]);
 
   const productsById = useMemo(() => {
     const map = new Map();
@@ -188,18 +233,27 @@ export default function KitchenIssues() {
     );
   };
 
-  const getUnitRatio = (unit) => {
-    if (!unit) return 1;
-    const raw = Number(
-      unit.ratio ??
-        unit.ratio_base ??
-        unit.base_ratio ??
-        unit.conversion_ratio ??
-        unit.conversion_factor ??
-        1
-    );
-    return Number.isFinite(raw) && raw > 0 ? raw : 1;
-  };
+const getUnitRatio = (unit) => {
+  if (!unit) return 1;
+
+  const candidates = [
+    unit.ratio,
+    unit.ratio_base,
+    unit.base_ratio,
+    unit.conversion_ratio,
+    unit.conversion_factor,
+    unit.value,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseRatioValue(candidate);
+    if (parsed !== null && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return 1;
+};
 
   const getProductById = (productId) => {
     return productsById.get(Number(productId)) || null;
@@ -226,21 +280,22 @@ export default function KitchenIssues() {
     );
   };
 
-  const getProductEntryUnitIds = (product) => {
-    if (!product) return [];
+const getProductEntryUnitIds = (product) => {
+  if (!product) return [];
 
-    const ordered = [
-      getProductUnitId(product, "sale"),
-      getProductUnitId(product, "production"),
-      getProductUnitId(product, "purchase"),
-      getProductUnitId(product, "stock"),
-    ]
-      .filter(Boolean)
-      .map((id) => Number(id));
+  const ordered = [
+    product.purchase_unit_id,
+    product.sale_unit_id,
+    product.stock_unit_id,
+    product.production_unit_id,
+  ]
+    .filter(Boolean)
+    .map((id) => Number(id));
 
-    const unique = [...new Set(ordered)];
-    return unique.filter((id) => unitsById.has(Number(id)));
-  };
+  const unique = [...new Set(ordered)];
+
+  return unique.filter((id) => unitsById.has(Number(id)));
+};
 
   const getPreferredEntryUnitId = (product) => {
     const ids = getProductEntryUnitIds(product);
@@ -274,6 +329,17 @@ export default function KitchenIssues() {
     const product = getLineProduct(line);
     return getUnitModel(getProductStockUnitId(product));
   };
+
+  const getLineConversionPreview = (line) => {
+  const entryUnit = getLineEntryUnit(line);
+  const stockUnit = getLineStockUnit(line);
+
+  if (!entryUnit || !stockUnit) return "-";
+
+  const converted = convertQuantity(1, entryUnit.id, stockUnit.id);
+
+  return `1 ${getUnitLabel(entryUnit)} = ${formatQty(converted)} ${getUnitLabel(stockUnit)}`;
+};
 
   const computeRequestedQuantity = (line) => {
     const product = getLineProduct(line);
@@ -1040,26 +1106,39 @@ export default function KitchenIssues() {
                         </div>
                       </div>
 
-                      {product && (
-                        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-                          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                            <span className="font-semibold">Unité saisie :</span>{" "}
-                            {getUnitLabel(entryUnit) || "-"}
-                          </div>
+{product && (
+  <div className="mt-2 space-y-2">
+    {entryUnitOptions.length > 1 && (
+      <select
+        className="w-full rounded-xl border p-2 text-sm"
+        value={line.display_unit_id || ""}
+        onChange={(e) => handleDisplayUnitChange(index, e.target.value)}
+      >
+        {entryUnitOptions.map((unit) => (
+          <option key={unit.id} value={unit.id}>
+            Saisie en {getUnitLabel(unit)}
+          </option>
+        ))}
+      </select>
+    )}
 
-                          <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                            <span className="font-semibold">Équiv. stock :</span>{" "}
-                            {computedRequestedQty > 0
-                              ? `${formatQty(computedRequestedQty)} ${getUnitLabel(stockUnit)}`
-                              : `0 ${getUnitLabel(stockUnit)}`}
-                          </div>
-
-                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                            <span className="font-semibold">Conversion :</span>{" "}
-                            {conversionHint || "-"}
-                          </div>
-                        </div>
-                      )}
+    <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+      <div>
+        Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
+      </div>
+      <div className="mt-1">
+        Équiv. stock :{" "}
+        <strong>
+          {computedRequestedQty > 0 ? formatQty(computedRequestedQty) : "0"}{" "}
+          {getUnitLabel(stockUnit) || "-"}
+        </strong>
+      </div>
+      <div className="mt-1 text-slate-500">
+        Conversion : {getLineConversionPreview(line)}
+      </div>
+    </div>
+  </div>
+)}
                     </div>
                   );
                 })}
