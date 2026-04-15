@@ -470,165 +470,138 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-            <div className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setMobileMenuOpen(true)}
-                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 shadow-sm xl:hidden"
-                    aria-label="Ouvrir le menu"
-                  >
-                    ☰
-                  </button>
+<header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+  <div className="flex flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex min-w-0 items-start gap-3">
+        {/* Bouton Mobile optimisé */}
+        <button
+          type="button"
+          onClick={() => setMobileMenuOpen(true)}
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 xl:hidden"
+          aria-label="Ouvrir le menu"
+        >
+          ☰
+        </button>
 
-                  <div className="min-w-0">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
-                        {currentGroup?.label || "Menu"}
-                      </span>
-                      {currentItem?.label && (
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          {currentItem.label}
-                        </span>
-                      )}
-                    </div>
+        <div className="min-w-0">
+          {/* Ligne des Badges - Plus compacte */}
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+              {currentGroup?.label || "Menu"}
+            </span>
+            {currentItem?.label && (
+              <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                {currentItem.label}
+              </span>
+            )}
+          </div>
 
-                    <h2 className="truncate text-2xl font-bold text-slate-900">
-                      {currentGroup?.title || mainSite?.name || "Tableau de bord"}
-                    </h2>
+          {/* Titre - Un peu plus fin pour gagner de la place */}
+          <h2 className="truncate text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+            {currentGroup?.title || mainSite?.name || "Tableau de bord"}
+          </h2>
 
-                    <p className="mt-1 max-w-3xl text-sm text-slate-500">
-                      {currentGroup?.description ||
-                        "Plateforme centralisée de gestion opérationnelle."}
-                    </p>
+          {/* Description - Réduite en marge */}
+          <p className="mt-0.5 max-w-2xl truncate text-xs leading-relaxed text-slate-500">
+            {currentGroup?.description || "Plateforme centralisée de gestion opérationnelle."}
+          </p>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                      <span className="font-semibold text-slate-700">
-                        Site : {siteName}
-                      </span>
-                      <span className="hidden sm:inline">•</span>
-                      <span>
-                        Utilisateur : {user?.name || user?.email} ({user?.role})
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="hidden shrink-0 items-center gap-3 sm:flex">
-                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-                    {avatarUrl ? (
-                      <img
-                        src={avatarUrl}
-                        alt={user?.name || "Avatar"}
-                        className="h-10 w-10 rounded-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                            user?.name || "User"
-                          )}&background=e2e8f0&color=0f172a`;
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-700">
-                        {getInitials(user?.name || user?.email || "U")}
-                      </div>
-                    )}
-
-                    <div className="text-right">
-                      <div className="max-w-[180px] truncate text-sm font-semibold text-slate-800">
-                        {user?.name || user?.email}
-                      </div>
-                      <div className="text-xs text-slate-500">{user?.role}</div>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={logout}
-                    className="rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-red-700"
-                  >
-                    Déconnexion
-                  </button>
-                </div>
-              </div>
-
-              {currentGroup?.items?.length > 0 && (
-                <div className="overflow-x-auto">
-                  <div className="flex min-w-max gap-2 rounded-2xl bg-slate-50 p-2">
-                    {currentGroup.items.map((item) => {
-                      const isActive = page === item.key;
-                      const isInterSite = item.key === "interSiteRequests";
-                      const isStockDashboard =
-                        item.key === "stockDashboardSite" ||
-                        item.key === "stockDashboardGlobal";
-
-                      return (
-                        <button
-                          key={item.key}
-                          onClick={() => handleSubmenuClick(item.key)}
-                          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium whitespace-nowrap transition ${
-                            isActive
-                              ? "bg-white text-slate-900 shadow-sm"
-                              : "text-slate-600 hover:bg-white hover:text-slate-900"
-                          }`}
-                        >
-                          <span>{item.label}</span>
-
-                          {isInterSite && pendingTransferCount > 0 && (
-                            <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
-                              {pendingTransferCount}
-                            </span>
-                          )}
-
-                          {isStockDashboard && stockAlertCount > 0 && (
-                            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white">
-                              {stockAlertCount}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 sm:hidden">
-                <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt={user?.name || "Avatar"}
-                      className="h-9 w-9 rounded-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                          user?.name || "User"
-                        )}&background=e2e8f0&color=0f172a`;
-                      }}
-                    />
-                  ) : (
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
-                      {getInitials(user?.name || user?.email || "U")}
-                    </div>
-                  )}
-
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-800">
-                      {user?.name || user?.email}
-                    </div>
-                    <div className="text-xs text-slate-500">{user?.role}</div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={logout}
-                  className="rounded-2xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-red-700"
-                >
-                  Déconnexion
-                </button>
-              </div>
+          {/* Infos secondaires - Plus discrètes */}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+            <div className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+              <span className="font-medium text-slate-600">Site : {siteName}</span>
             </div>
-          </header>
+            <span className="hidden sm:inline opacity-30">|</span>
+            <span className="truncate">
+              {user?.name || user?.email} • <span className="italic">{user?.role}</span>
+            </span>
+          </div>
+        </div>
+      </div>
 
+      {/* Bloc Utilisateur Droite (Desktop) */}
+      <div className="hidden shrink-0 items-center gap-3 sm:flex">
+        <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-1.5 pr-3 shadow-sm">
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={user?.name || "Avatar"}
+              className="h-9 w-9 rounded-lg object-cover shadow-sm"
+              onError={(e) => {
+                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || "User")}&background=e2e8f0&color=0f172a`;
+              }}
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-200 text-xs font-bold text-slate-700">
+              {getInitials(user?.name || user?.email || "U")}
+            </div>
+          )}
+
+          <div className="text-right">
+            <div className="max-w-[150px] truncate text-xs font-bold text-slate-800">
+              {user?.name || user?.email}
+            </div>
+            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-tighter">{user?.role}</div>
+          </div>
+        </div>
+
+        <button
+          onClick={logout}
+          className="rounded-xl bg-red-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-red-700 active:scale-95"
+        >
+          Déconnexion
+        </button>
+      </div>
+    </div>
+
+    {/* Menu Horizontal (Submenu) - Plus élégant */}
+    {currentGroup?.items?.length > 0 && (
+      <div className="mt-1 overflow-x-auto pb-1">
+        <div className="flex min-w-max gap-1.5 rounded-xl bg-slate-100/50 p-1">
+          {currentGroup.items.map((item) => {
+            const isActive = page === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => handleSubmenuClick(item.key)}
+                className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all ${
+                  isActive
+                    ? "bg-white text-slate-900 shadow-sm ring-1 ring-black/5"
+                    : "text-slate-500 hover:bg-white/60 hover:text-slate-800"
+                }`}
+              >
+                <span>{item.label}</span>
+                {(item.key === "interSiteRequests" && pendingTransferCount > 0) && (
+                  <span className="animate-pulse rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] text-white">
+                    {pendingTransferCount}
+                  </span>
+                )}
+                {((item.key === "stockDashboardSite" || item.key === "stockDashboardGlobal") && stockAlertCount > 0) && (
+                  <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] text-white">
+                    {stockAlertCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
+    {/* Profil Mobile (visible uniquement sur mobile) - Épuré */}
+    <div className="flex items-center justify-between border-t border-slate-100 pt-2 sm:hidden">
+      <div className="flex items-center gap-2">
+         <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+         <span className="text-[10px] font-bold text-slate-600 uppercase">{siteName}</span>
+      </div>
+      <button onClick={logout} className="text-[10px] font-black uppercase text-red-600">
+        Déconnexion
+      </button>
+    </div>
+  </div>
+</header>
           <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8">
             <div className="mx-auto w-full max-w-[1800px]">{children}</div>
           </main>

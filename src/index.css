@@ -1,1 +1,24 @@
 @import "tailwindcss";
+
+html {
+  font-size: 14px; 
+}
+
+/* --- SOLUTION POUR LES TITRES --- */
+@layer base {
+  /* On force les h2 à ignorer le rétrécissement global 
+     ou à être plus imposants par défaut */
+  h2 {
+    /* On utilise une taille fixe en px ou on augmente le rem */
+    font-size: 0.9rem !important; 
+    line-height: 2rem;
+  }
+
+  /* Optionnel : faire de même pour h1 ou h3 si besoin */
+  h1 { font-size: 1.1rem !important; }
+}
+
+/* Version sans @layer si ton éditeur souligne encore en rouge */
+h2 {
+  font-size: 16px !important; /* Taille fixe en pixels qui ne bougera jamais */
+}
