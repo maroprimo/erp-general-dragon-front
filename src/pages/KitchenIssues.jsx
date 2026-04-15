@@ -62,6 +62,18 @@ function statusBadgeClass(status) {
   }
 }
 
+
+function formatPreciseQty(value, digits = 5) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "-";
+
+  return num.toLocaleString("fr-FR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+
 function buildSpaPageUrl(page, extraParams = {}) {
   const url = new URL(window.location.href);
   const params = new URLSearchParams(url.search);
@@ -1087,16 +1099,25 @@ export default function KitchenIssues() {
                             <div>
                               Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
                             </div>
-                            <div className="mt-1">
-                              Équiv. stock :{" "}
-                              <strong>
-                                {computedRequestedQty > 0 ? formatQty(computedRequestedQty) : "0"}{" "}
-                                {getUnitLabel(stockUnit) || "-"}
-                              </strong>
-                            </div>
-                            <div className="mt-1 text-slate-500">
-                              Conversion : {getLineConversionPreview(line)}
-                            </div>
+<div className="mt-1">
+  Équiv. stock :{" "}
+  <strong>
+    {computedRequestedQty > 0 ? formatPreciseQty(computedRequestedQty, 5) : "0,00000"}{" "}
+    {getUnitLabel(stockUnit) || "-"}
+  </strong>
+</div>
+<div className="mt-1 text-slate-500">
+  Conversion :{" "}
+  {entryUnit && stockUnit
+    ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
+        convertQuantity(1, entryUnit.id, stockUnit.id),
+        5
+      )} ${getUnitLabel(stockUnit)}`
+    : "-"}
+</div>
+<div className="mt-1 text-[11px] text-slate-400">
+  Valeur brute : {String(computedRequestedQty || 0)}
+</div>
                           </div>
                         </div>
                       )}
