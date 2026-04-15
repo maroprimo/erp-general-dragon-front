@@ -899,7 +899,7 @@ export default function KitchenIssues() {
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-      <div className="xl:col-span-5">
+      <div className="xl:col-span-6">
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
@@ -1099,25 +1099,25 @@ export default function KitchenIssues() {
                             <div>
                               Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
                             </div>
-<div className="mt-1">
-  Équiv. stock :{" "}
-  <strong>
-    {computedRequestedQty > 0 ? formatPreciseQty(computedRequestedQty, 5) : "0,00000"}{" "}
-    {getUnitLabel(stockUnit) || "-"}
-  </strong>
-</div>
-<div className="mt-1 text-slate-500">
-  Conversion :{" "}
-  {entryUnit && stockUnit
-    ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
-        convertQuantity(1, entryUnit.id, stockUnit.id),
-        5
-      )} ${getUnitLabel(stockUnit)}`
-    : "-"}
-</div>
-<div className="mt-1 text-[11px] text-slate-400">
-  Valeur brute : {String(computedRequestedQty || 0)}
-</div>
+                              <div className="mt-1">
+                                Équiv. stock :{" "}
+                                <strong>
+                                  {computedRequestedQty > 0 ? formatPreciseQty(computedRequestedQty, 5) : "0,00000"}{" "}
+                                  {getUnitLabel(stockUnit) || "-"}
+                                </strong>
+                              </div>
+                              <div className="mt-1 text-slate-500">
+                                Conversion :{" "}
+                                {entryUnit && stockUnit
+                                  ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
+                                      convertQuantity(1, entryUnit.id, stockUnit.id),
+                                      5
+                                    )} ${getUnitLabel(stockUnit)}`
+                                  : "-"}
+                              </div>
+                              <div className="mt-1 text-[11px] text-slate-400">
+                                Valeur brute : {String(computedRequestedQty || 0)}
+                              </div>
                           </div>
                         </div>
                       )}
@@ -1162,7 +1162,7 @@ export default function KitchenIssues() {
         </div>
       </div>
 
-      <div className="xl:col-span-7">
+      <div className="xl:col-span-6">
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
