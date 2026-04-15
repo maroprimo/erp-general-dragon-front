@@ -318,10 +318,10 @@ export default function Stock() {
                     {formatQty(getIncomingQty(item))} {getUnitName(item)}
                   </td>
                   <td className="px-4 py-3 text-red-700">
-                    {formatQty(getOutgoingQty(item))} {getUnitName(item)}
+                    {getOutgoingQty(item)} {getUnitName(item)}
                   </td>
                   <td className="px-4 py-3 font-semibold">
-                    {formatQty(getClosingQty(item))} {getUnitName(item)}
+                    {getClosingQty(item)} {getUnitName(item)}
                   </td>
                   <td className="px-4 py-3 font-semibold text-blue-700">
                     {getNextDayOpeningQty(item)} {getUnitName(item)}
