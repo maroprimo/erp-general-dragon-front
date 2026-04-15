@@ -727,7 +727,9 @@ export default function KitchenIssues() {
         notes: form.notes || "",
         lines: validLines.map((line) => ({
           product_id: Number(line.product_id),
-          requested_quantity: Number(line.requested_quantity_numeric),
+          display_quantity: Number(line.display_quantity || 0),
+          display_unit_id: line.display_unit_id ? Number(line.display_unit_id) : null,
+          requested_quantity: Number(line.requested_quantity_numeric || 0),
           notes: line.notes || "",
         })),
       };
