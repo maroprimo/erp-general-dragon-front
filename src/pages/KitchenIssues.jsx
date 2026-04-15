@@ -121,15 +121,16 @@ function buildScanUrl(issue) {
 
 export default function KitchenIssues() {
   const { user } = useAuth();
-const {
-  sites,
-  warehouses,
-  products,
-  units: hookUnits = [],
-  loading: refsLoading,
-} = useReferences();
 
-const [fullUnits, setFullUnits] = useState([]);
+  const {
+    sites,
+    warehouses,
+    products,
+    units: hookUnits = [],
+    loading: refsLoading,
+  } = useReferences();
+
+  const [fullUnits, setFullUnits] = useState([]);
 
   const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
   const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
@@ -156,58 +157,55 @@ const [fullUnits, setFullUnits] = useState([]);
     lines: [emptyLine()],
   });
 
+  const isEditing = editingId !== null;
 
   useEffect(() => {
-  let mounted = true;
+    let mounted = true;
 
-  const loadFullUnits = async () => {
-    try {
-      const res = await api.get("/units");
-      const rows = asArray(res.data);
+    const loadFullUnits = async () => {
+      try {
+        const res = await api.get("/units");
+        const rows = asArray(res.data);
 
-      if (mounted && Array.isArray(rows)) {
-        setFullUnits(rows);
+        if (mounted && Array.isArray(rows)) {
+          setFullUnits(rows);
+        }
+      } catch (err) {
+        console.error("Erreur chargement complet des unités:", err);
+        if (mounted) {
+          setFullUnits([]);
+        }
       }
-    } catch (err) {
-      console.error("Erreur chargement complet des unités:", err);
-      if (mounted) {
-        setFullUnits([]);
-      }
-    }
+    };
+
+    loadFullUnits();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const effectiveUnits = useMemo(() => {
+    return fullUnits.length > 0 ? fullUnits : hookUnits;
+  }, [fullUnits, hookUnits]);
+
+  const parseRatioValue = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+
+    const cleaned = String(value).trim().replace(/\s+/g, "").replace(",", ".");
+    const parsed = Number(cleaned);
+
+    return Number.isFinite(parsed) ? parsed : null;
   };
 
-  loadFullUnits();
-
-  return () => {
-    mounted = false;
-  };
-}, []);
-  const isEditing = editingId !== null;
-const effectiveUnits = useMemo(() => {
-  return fullUnits.length > 0 ? fullUnits : hookUnits;
-}, [fullUnits, hookUnits]);
-
-const parseRatioValue = (value) => {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-
-  const cleaned = String(value)
-    .trim()
-    .replace(/\s+/g, "")
-    .replace(",", ".");
-
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-const unitsById = useMemo(() => {
-  const map = new Map();
-
-  (effectiveUnits ?? []).forEach((unit) => {
-    map.set(Number(unit.id), unit);
-  });
-
-  return map;
-}, [effectiveUnits]);
+  const unitsById = useMemo(() => {
+    const map = new Map();
+    (effectiveUnits ?? []).forEach((unit) => {
+      map.set(Number(unit.id), unit);
+    });
+    return map;
+  }, [effectiveUnits]);
 
   const productsById = useMemo(() => {
     const map = new Map();
@@ -233,27 +231,27 @@ const unitsById = useMemo(() => {
     );
   };
 
-const getUnitRatio = (unit) => {
-  if (!unit) return 1;
+  const getUnitRatio = (unit) => {
+    if (!unit) return 1;
 
-  const candidates = [
-    unit.ratio,
-    unit.ratio_base,
-    unit.base_ratio,
-    unit.conversion_ratio,
-    unit.conversion_factor,
-    unit.value,
-  ];
+    const candidates = [
+      unit.ratio,
+      unit.ratio_base,
+      unit.base_ratio,
+      unit.conversion_ratio,
+      unit.conversion_factor,
+      unit.value,
+    ];
 
-  for (const candidate of candidates) {
-    const parsed = parseRatioValue(candidate);
-    if (parsed !== null && parsed > 0) {
-      return parsed;
+    for (const candidate of candidates) {
+      const parsed = parseRatioValue(candidate);
+      if (parsed !== null && parsed > 0) {
+        return parsed;
+      }
     }
-  }
 
-  return 1;
-};
+    return 1;
+  };
 
   const getProductById = (productId) => {
     return productsById.get(Number(productId)) || null;
@@ -280,22 +278,21 @@ const getUnitRatio = (unit) => {
     );
   };
 
-const getProductEntryUnitIds = (product) => {
-  if (!product) return [];
+  const getProductEntryUnitIds = (product) => {
+    if (!product) return [];
 
-  const ordered = [
-    product.purchase_unit_id,
-    product.sale_unit_id,
-    product.stock_unit_id,
-    product.production_unit_id,
-  ]
-    .filter(Boolean)
-    .map((id) => Number(id));
+    const ordered = [
+      product.purchase_unit_id,
+      product.sale_unit_id,
+      product.stock_unit_id,
+      product.production_unit_id,
+    ]
+      .filter(Boolean)
+      .map((id) => Number(id));
 
-  const unique = [...new Set(ordered)];
-
-  return unique.filter((id) => unitsById.has(Number(id)));
-};
+    const unique = [...new Set(ordered)];
+    return unique.filter((id) => unitsById.has(Number(id)));
+  };
 
   const getPreferredEntryUnitId = (product) => {
     const ids = getProductEntryUnitIds(product);
@@ -331,15 +328,15 @@ const getProductEntryUnitIds = (product) => {
   };
 
   const getLineConversionPreview = (line) => {
-  const entryUnit = getLineEntryUnit(line);
-  const stockUnit = getLineStockUnit(line);
+    const entryUnit = getLineEntryUnit(line);
+    const stockUnit = getLineStockUnit(line);
 
-  if (!entryUnit || !stockUnit) return "-";
+    if (!entryUnit || !stockUnit) return "-";
 
-  const converted = convertQuantity(1, entryUnit.id, stockUnit.id);
+    const converted = convertQuantity(1, entryUnit.id, stockUnit.id);
 
-  return `1 ${getUnitLabel(entryUnit)} = ${formatQty(converted)} ${getUnitLabel(stockUnit)}`;
-};
+    return `1 ${getUnitLabel(entryUnit)} = ${formatQty(converted)} ${getUnitLabel(stockUnit)}`;
+  };
 
   const computeRequestedQuantity = (line) => {
     const product = getLineProduct(line);
@@ -353,18 +350,6 @@ const getProductEntryUnitIds = (product) => {
     if (!entryUnitId || !stockUnitId) return roundQty(qty, 10);
 
     return convertQuantity(qty, entryUnitId, stockUnitId);
-  };
-
-  const getConversionHint = (line) => {
-    const entryUnit = getLineEntryUnit(line);
-    const stockUnit = getLineStockUnit(line);
-
-    if (!entryUnit || !stockUnit) return "";
-
-    const oneEntryInStock = convertQuantity(1, entryUnit.id, stockUnit.id);
-    if (!Number.isFinite(oneEntryInStock)) return "";
-
-    return `1 ${getUnitLabel(entryUnit)} = ${formatQty(oneEntryInStock)} ${getUnitLabel(stockUnit)}`;
   };
 
   const buildLineFromExisting = (rawLine) => {
@@ -669,8 +654,7 @@ const getProductEntryUnitIds = (product) => {
       const line = { ...lines[index], display_quantity: value };
 
       const requestedQty = computeRequestedQuantity(line);
-      line.requested_quantity =
-        value && requestedQty > 0 ? String(requestedQty) : "";
+      line.requested_quantity = value && requestedQty > 0 ? String(requestedQty) : "";
 
       lines[index] = line;
       return { ...prev, lines };
@@ -882,12 +866,7 @@ const getProductEntryUnitIds = (product) => {
       const requestedQty = computeRequestedQuantity(line);
       return sum + requestedQty * price;
     }, 0);
-  }, [form.lines, products, units]);
-
-  const getLineStockUnitLabel = (line) => {
-    const stockUnit = getLineStockUnit(line);
-    return getUnitLabel(stockUnit);
-  };
+  }, [form.lines, products, unitsById]);
 
   const getLineEntryUnitOptions = (line) => {
     const product = getLineProduct(line);
@@ -1029,13 +1008,9 @@ const getProductEntryUnitIds = (product) => {
                   const stockUnit = getLineStockUnit(line);
                   const entryUnitOptions = getLineEntryUnitOptions(line);
                   const computedRequestedQty = computeRequestedQuantity(line);
-                  const conversionHint = getConversionHint(line);
 
                   return (
-                    <div
-                      key={index}
-                      className="rounded-xl border p-3"
-                    >
+                    <div key={index} className="rounded-xl border p-3">
                       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
                         <div className="lg:col-span-4">
                           <select
@@ -1106,51 +1081,36 @@ const getProductEntryUnitIds = (product) => {
                         </div>
                       </div>
 
-{product && (
-  <div className="mt-2 space-y-2">
-    {entryUnitOptions.length > 1 && (
-      <select
-        className="w-full rounded-xl border p-2 text-sm"
-        value={line.display_unit_id || ""}
-        onChange={(e) => handleDisplayUnitChange(index, e.target.value)}
-      >
-        {entryUnitOptions.map((unit) => (
-          <option key={unit.id} value={unit.id}>
-            Saisie en {getUnitLabel(unit)}
-          </option>
-        ))}
-      </select>
-    )}
-
-    <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-      <div>
-        Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
-      </div>
-      <div className="mt-1">
-        Équiv. stock :{" "}
-        <strong>
-          {computedRequestedQty > 0 ? formatQty(computedRequestedQty) : "0"}{" "}
-          {getUnitLabel(stockUnit) || "-"}
-        </strong>
-      </div>
-      <div className="mt-1 text-slate-500">
-        Conversion : {getLineConversionPreview(line)}
-      </div>
-    </div>
-  </div>
-)}
+                      {product && (
+                        <div className="mt-2">
+                          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            <div>
+                              Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
+                            </div>
+                            <div className="mt-1">
+                              Équiv. stock :{" "}
+                              <strong>
+                                {computedRequestedQty > 0 ? formatQty(computedRequestedQty) : "0"}{" "}
+                                {getUnitLabel(stockUnit) || "-"}
+                              </strong>
+                            </div>
+                            <div className="mt-1 text-slate-500">
+                              Conversion : {getLineConversionPreview(line)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
 
               <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-                Estimation indicative :{" "}
-                <strong>{formatMoney(totalEstimated)} Ar</strong>
+                Estimation indicative : <strong>{formatMoney(totalEstimated)} Ar</strong>
               </div>
 
               <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
-                Astuce : le chef saisit la quantité dans l’unité pratique.  
+                Astuce : le chef saisit la quantité dans l’unité pratique.
                 Le système convertit automatiquement vers l’unité de stock réelle.
               </div>
             </div>
