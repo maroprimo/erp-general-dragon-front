@@ -27,6 +27,34 @@ export default function Stock() {
 
   const isStockSiteUser = user?.role === "stock";
 
+  const unitsById = useMemo(() => {
+    const map = new Map();
+    (units ?? []).forEach((unit) => {
+      map.set(Number(unit.id), unit);
+    });
+    return map;
+  }, [units]);
+
+  const getUnitRatio = (unitId) => {
+    const unit = unitsById.get(Number(unitId));
+    const ratio = Number(unit?.ratio_base ?? 1);
+    return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+  };
+
+  const convertQty = (qty, fromUnitId, toUnitId) => {
+    const numericQty = Number(qty ?? 0);
+
+    if (!Number.isFinite(numericQty)) return 0;
+    if (!fromUnitId || !toUnitId || Number(fromUnitId) === Number(toUnitId)) {
+      return numericQty;
+    }
+
+    const fromRatio = getUnitRatio(fromUnitId);
+    const toRatio = getUnitRatio(toUnitId);
+
+    return (numericQty * fromRatio) / toRatio;
+  };
+
   const visibleSites = useMemo(() => {
     if (isStockSiteUser) {
       return (sites ?? []).filter(
@@ -154,31 +182,49 @@ export default function Stock() {
     return "hover:bg-slate-50";
   };
 
+  const getDisplayUnitId = (item) => {
+    return (
+      item.display_unit_id ||
+      filters.display_unit_id ||
+      item.product?.stock_unit_id ||
+      ""
+    );
+  };
+
+  const getStockUnitId = (item) => {
+    return item.product?.stock_unit_id || "";
+  };
+
   const getUnitName = (item) => {
     return (
       item.display_unit_name ||
-      units?.find((u) => Number(u.id) === Number(item.display_unit_id))?.name ||
-      units?.find((u) => Number(u.id) === Number(item.product?.stock_unit_id))?.name ||
+      unitsById.get(Number(getDisplayUnitId(item)))?.name ||
+      unitsById.get(Number(item.product?.stock_unit_id))?.name ||
       ""
     );
   };
 
   const getOpeningQty = (item) => {
+    if (item.opening_quantity_display !== undefined && item.opening_quantity_display !== null) {
+      return Number(item.opening_quantity_display);
+    }
+
     return Number(
-      item.opening_quantity_display ??
-        item.opening_quantity ??
+      item.opening_quantity ??
         item.initial_quantity ??
         item.start_quantity ??
-        item.quantity_on_hand_display ??
         item.quantity_on_hand ??
         0
     );
   };
 
   const getIncomingQty = (item) => {
+    if (item.incoming_quantity_display !== undefined && item.incoming_quantity_display !== null) {
+      return Number(item.incoming_quantity_display);
+    }
+
     return Number(
-      item.incoming_quantity_display ??
-        item.incoming_quantity ??
+      item.incoming_quantity ??
         item.entries_quantity ??
         item.total_in ??
         item.movement_in ??
@@ -187,9 +233,12 @@ export default function Stock() {
   };
 
   const getOutgoingQty = (item) => {
+    if (item.outgoing_quantity_display !== undefined && item.outgoing_quantity_display !== null) {
+      return Number(item.outgoing_quantity_display);
+    }
+
     return Number(
-      item.outgoing_quantity_display ??
-        item.outgoing_quantity ??
+      item.outgoing_quantity ??
         item.exits_quantity ??
         item.total_out ??
         item.movement_out ??
@@ -198,37 +247,74 @@ export default function Stock() {
   };
 
   const getClosingQty = (item) => {
+    if (item.closing_quantity_display !== undefined && item.closing_quantity_display !== null) {
+      return Number(item.closing_quantity_display);
+    }
+
     return Number(
-      item.closing_quantity_display ??
-        item.closing_quantity ??
+      item.closing_quantity ??
         item.final_quantity ??
         item.end_quantity ??
-        item.quantity_on_hand_display ??
         item.quantity_on_hand ??
         0
     );
   };
 
   const getNextDayOpeningQty = (item) => {
+    if (
+      item.next_day_opening_quantity_display !== undefined &&
+      item.next_day_opening_quantity_display !== null
+    ) {
+      return Number(item.next_day_opening_quantity_display);
+    }
+
     return Number(
-      item.next_day_opening_quantity_display ??
-        item.next_day_opening_quantity ??
+      item.next_day_opening_quantity ??
         item.reported_opening_quantity ??
         item.next_opening_quantity ??
-        getClosingQty(item)
+        item.closing_quantity ??
+        item.quantity_on_hand ??
+        0
     );
   };
 
   const getAvailableQty = (item) => {
-    return Number(item.quantity_available_display ?? item.quantity_available ?? 0);
+    if (item.quantity_available_display !== undefined && item.quantity_available_display !== null) {
+      return Number(item.quantity_available_display);
+    }
+
+    return Number(item.quantity_available ?? 0);
+  };
+
+  const getMinQty = (item) => {
+    const minStock = Number(item.product?.min_stock ?? 0);
+
+    if (!filters.display_unit_id || !getStockUnitId(item)) {
+      return minStock;
+    }
+
+    return convertQty(minStock, getStockUnitId(item), getDisplayUnitId(item));
+  };
+
+  const getReorderQty = (item) => {
+    const reorderPoint = Number(item.product?.reorder_point ?? 0);
+
+    if (!filters.display_unit_id || !getStockUnitId(item)) {
+      return reorderPoint;
+    }
+
+    return convertQty(reorderPoint, getStockUnitId(item), getDisplayUnitId(item));
   };
 
   const getStockValue = (item) => {
-    return Number(
-      item.stock_value ??
-        Number(item.closing_quantity ?? item.quantity_on_hand ?? 0) *
-          Number(item.average_unit_cost ?? 0)
-    );
+    if (item.stock_value !== undefined && item.stock_value !== null) {
+      return Number(item.stock_value);
+    }
+
+    const realClosingQty = Number(item.closing_quantity ?? item.quantity_on_hand ?? 0);
+    const avgCost = Number(item.average_unit_cost ?? 0);
+
+    return realClosingQty * avgCost;
   };
 
   if (refsLoading) {
@@ -382,10 +468,10 @@ export default function Stock() {
                       {formatQty(getAvailableQty(item))} {unitName}
                     </td>
                     <td className="px-4 py-3">
-                      {formatQty(item.product?.min_stock ?? 0)}
+                      {formatQty(getMinQty(item))} {unitName}
                     </td>
                     <td className="px-4 py-3">
-                      {formatQty(item.product?.reorder_point ?? 0)}
+                      {formatQty(getReorderQty(item))} {unitName}
                     </td>
                     <td className="px-4 py-3">
                       {formatMoney(item.average_unit_cost)} Ar
