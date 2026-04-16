@@ -22,6 +22,7 @@ export default function Stock() {
     site_id: "",
     warehouse_id: "",
     report_date: getTodayYmd(),
+    display_unit_id: "",
   });
 
   const isStockSiteUser = user?.role === "stock";
@@ -59,6 +60,7 @@ export default function Stock() {
       if (effectiveSiteId) params.site_id = effectiveSiteId;
       if (customFilters.warehouse_id) params.warehouse_id = customFilters.warehouse_id;
       if (customFilters.report_date) params.report_date = customFilters.report_date;
+      if (customFilters.display_unit_id) params.display_unit_id = customFilters.display_unit_id;
 
       const res = await api.get("/stock-levels", { params });
 
@@ -82,6 +84,7 @@ export default function Stock() {
         site_id: String(user.site_id),
         warehouse_id: "",
         report_date: getTodayYmd(),
+        display_unit_id: "",
       };
       setFilters(nextFilters);
       loadStock(nextFilters);
@@ -90,6 +93,7 @@ export default function Stock() {
         site_id: "",
         warehouse_id: "",
         report_date: getTodayYmd(),
+        display_unit_id: "",
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,7 +115,13 @@ export default function Stock() {
         warehouse_id: "",
       }));
     }
-  }, [visibleWarehouses, filters.warehouse_id, filters.site_id, isStockSiteUser, user]);
+  }, [
+    visibleWarehouses,
+    filters.warehouse_id,
+    filters.site_id,
+    isStockSiteUser,
+    user,
+  ]);
 
   const handleChange = (field, value) => {
     if (field === "site_id" && isStockSiteUser) {
@@ -146,6 +156,8 @@ export default function Stock() {
 
   const getUnitName = (item) => {
     return (
+      item.display_unit_name ||
+      units?.find((u) => Number(u.id) === Number(item.display_unit_id))?.name ||
       units?.find((u) => Number(u.id) === Number(item.product?.stock_unit_id))?.name ||
       ""
     );
@@ -153,9 +165,11 @@ export default function Stock() {
 
   const getOpeningQty = (item) => {
     return Number(
-      item.opening_quantity ??
+      item.opening_quantity_display ??
+        item.opening_quantity ??
         item.initial_quantity ??
         item.start_quantity ??
+        item.quantity_on_hand_display ??
         item.quantity_on_hand ??
         0
     );
@@ -163,7 +177,8 @@ export default function Stock() {
 
   const getIncomingQty = (item) => {
     return Number(
-      item.incoming_quantity ??
+      item.incoming_quantity_display ??
+        item.incoming_quantity ??
         item.entries_quantity ??
         item.total_in ??
         item.movement_in ??
@@ -173,7 +188,8 @@ export default function Stock() {
 
   const getOutgoingQty = (item) => {
     return Number(
-      item.outgoing_quantity ??
+      item.outgoing_quantity_display ??
+        item.outgoing_quantity ??
         item.exits_quantity ??
         item.total_out ??
         item.movement_out ??
@@ -183,9 +199,11 @@ export default function Stock() {
 
   const getClosingQty = (item) => {
     return Number(
-      item.closing_quantity ??
+      item.closing_quantity_display ??
+        item.closing_quantity ??
         item.final_quantity ??
         item.end_quantity ??
+        item.quantity_on_hand_display ??
         item.quantity_on_hand ??
         0
     );
@@ -193,10 +211,23 @@ export default function Stock() {
 
   const getNextDayOpeningQty = (item) => {
     return Number(
-      item.next_day_opening_quantity ??
+      item.next_day_opening_quantity_display ??
+        item.next_day_opening_quantity ??
         item.reported_opening_quantity ??
         item.next_opening_quantity ??
         getClosingQty(item)
+    );
+  };
+
+  const getAvailableQty = (item) => {
+    return Number(item.quantity_available_display ?? item.quantity_available ?? 0);
+  };
+
+  const getStockValue = (item) => {
+    return Number(
+      item.stock_value ??
+        Number(item.closing_quantity ?? item.quantity_on_hand ?? 0) *
+          Number(item.average_unit_cost ?? 0)
     );
   };
 
@@ -216,7 +247,7 @@ export default function Stock() {
       <div className="rounded-2xl bg-white p-5 shadow">
         <h2 className="mb-4 text-xl font-semibold text-slate-800">Filtres</h2>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
           <select
             className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
             value={filters.site_id}
@@ -251,6 +282,19 @@ export default function Stock() {
             onChange={(e) => handleChange("report_date", e.target.value)}
           />
 
+          <select
+            className="rounded-xl border p-3"
+            value={filters.display_unit_id}
+            onChange={(e) => handleChange("display_unit_id", e.target.value)}
+          >
+            <option value="">Unité stock produit</option>
+            {(units ?? []).map((unit) => (
+              <option key={unit.id} value={unit.id}>
+                {unit.name}
+              </option>
+            ))}
+          </select>
+
           <button
             onClick={applyFilters}
             className="rounded-xl bg-slate-900 px-4 py-2 text-white"
@@ -284,6 +328,7 @@ export default function Stock() {
                 <th className="px-4 py-3">Catégorie</th>
                 <th className="px-4 py-3">Site</th>
                 <th className="px-4 py-3">Dépôt</th>
+                <th className="px-4 py-3">Unité</th>
                 <th className="px-4 py-3">Stock initial</th>
                 <th className="px-4 py-3">Entrées</th>
                 <th className="px-4 py-3">Sorties</th>
@@ -293,79 +338,92 @@ export default function Stock() {
                 <th className="px-4 py-3">Min</th>
                 <th className="px-4 py-3">Reorder</th>
                 <th className="px-4 py-3">Coût moyen</th>
+                <th className="px-4 py-3">Valeur stock</th>
                 <th className="px-4 py-3">Statut</th>
                 <th className="px-4 py-3">Transfert</th>
               </tr>
             </thead>
             <tbody>
-              {stocks.map((item) => (
-                <tr
-                  key={item.id}
-                  className={`border-b border-slate-100 ${rowClass(item)}`}
-                >
-                  <td className="px-4 py-3">{item.product?.name ?? item.product_id}</td>
-                  <td className="px-4 py-3">
-                    {item.product?.category?.name ?? "-"}
-                  </td>
-                  <td className="px-4 py-3">{item.site?.name ?? item.site_id}</td>
-                  <td className="px-4 py-3">
-                    {item.warehouse?.name ?? item.warehouse_id}
-                  </td>
-                  <td className="px-4 py-3">
-                    {formatQty(getOpeningQty(item))} {getUnitName(item)}
-                  </td>
-                  <td className="px-4 py-3 text-emerald-700">
-                    {formatQty(getIncomingQty(item))} {getUnitName(item)}
-                  </td>
-                  <td className="px-4 py-3 text-red-700">
-                    {getOutgoingQty(item)} {getUnitName(item)}
-                  </td>
-                  <td className="px-4 py-3 font-semibold">
-                    {getClosingQty(item)} {getUnitName(item)}
-                  </td>
-                  <td className="px-4 py-3 font-semibold text-blue-700">
-                    {getNextDayOpeningQty(item)} {getUnitName(item)}
-                  </td>
-                  <td className="px-4 py-3">
-                    {formatQty(item.quantity_available)}
-                  </td>
-                  <td className="px-4 py-3">
-                    {formatQty(item.product?.min_stock ?? 0)}
-                  </td>
-                  <td className="px-4 py-3">{item.product?.reorder_point ?? 0}</td>
-                  <td className="px-4 py-3">
-                    {formatMoney(item.average_unit_cost)} Ar
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-lg px-2 py-1 text-xs font-semibold ${
-                        item.stock_status === "out_of_stock"
-                          ? "bg-red-200 text-red-800"
-                          : item.stock_status === "critical"
-                          ? "bg-red-100 text-red-700"
-                          : item.stock_status === "warning"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-slate-100 text-slate-700"
-                      }`}
-                    >
-                      {item.stock_status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {item.inter_site_transfer_available ? (
-                      <span className="rounded-lg bg-emerald-100 px-2 py-1 text-emerald-700">
-                        Oui
+              {stocks.map((item) => {
+                const unitName = getUnitName(item);
+
+                return (
+                  <tr
+                    key={item.id}
+                    className={`border-b border-slate-100 ${rowClass(item)}`}
+                  >
+                    <td className="px-4 py-3">{item.product?.name ?? item.product_id}</td>
+                    <td className="px-4 py-3">
+                      {item.product?.category?.name ?? "-"}
+                    </td>
+                    <td className="px-4 py-3">{item.site?.name ?? item.site_id}</td>
+                    <td className="px-4 py-3">
+                      {item.warehouse?.name ?? item.warehouse_id}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-slate-700">
+                      {unitName || "-"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatQty(getOpeningQty(item))} {unitName}
+                    </td>
+                    <td className="px-4 py-3 text-emerald-700">
+                      {formatQty(getIncomingQty(item))} {unitName}
+                    </td>
+                    <td className="px-4 py-3 text-red-700">
+                      {formatQty(getOutgoingQty(item))} {unitName}
+                    </td>
+                    <td className="px-4 py-3 font-semibold">
+                      {formatQty(getClosingQty(item))} {unitName}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-blue-700">
+                      {formatQty(getNextDayOpeningQty(item))} {unitName}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatQty(getAvailableQty(item))} {unitName}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatQty(item.product?.min_stock ?? 0)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatQty(item.product?.reorder_point ?? 0)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {formatMoney(item.average_unit_cost)} Ar
+                    </td>
+                    <td className="px-4 py-3 font-semibold">
+                      {formatMoney(getStockValue(item))} Ar
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                          item.stock_status === "out_of_stock"
+                            ? "bg-red-200 text-red-800"
+                            : item.stock_status === "critical"
+                            ? "bg-red-100 text-red-700"
+                            : item.stock_status === "warning"
+                            ? "bg-yellow-100 text-yellow-800"
+                            : "bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        {item.stock_status}
                       </span>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.inter_site_transfer_available ? (
+                        <span className="rounded-lg bg-emerald-100 px-2 py-1 text-emerald-700">
+                          Oui
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
 
               {stocks.length === 0 && (
                 <tr>
-                  <td colSpan={15} className="px-4 py-6 text-center text-slate-500">
+                  <td colSpan={17} className="px-4 py-6 text-center text-slate-500">
                     Aucun stock trouvé pour ces filtres.
                   </td>
                 </tr>
