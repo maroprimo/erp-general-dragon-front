@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import toast from "react-hot-toast";
 
@@ -22,6 +22,7 @@ const emptyForm = {
   phone: "",
   role: "admin",
   site_id: "",
+  warehouse_id: "",
   password: "",
   is_active: true,
 };
@@ -30,6 +31,7 @@ export default function Users() {
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [warehouses, setWarehouses] = useState([]);
 
   const [editingId, setEditingId] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
@@ -41,13 +43,15 @@ export default function Users() {
     try {
       setLoading(true);
 
-      const [usersRes, sitesRes] = await Promise.all([
+      const [usersRes, sitesRes, warehousesRes] = await Promise.all([
         api.get("/users"),
         api.get("/sites"),
+        api.get("/warehouses"),
       ]);
 
       setUsers(usersRes.data?.data ?? usersRes.data ?? []);
       setSites(sitesRes.data?.data ?? sitesRes.data ?? []);
+      setWarehouses(warehousesRes.data?.data ?? warehousesRes.data ?? []);
     } catch (err) {
       console.error(err);
       toast.error("Impossible de charger les utilisateurs");
@@ -74,10 +78,26 @@ export default function Users() {
     return () => URL.revokeObjectURL(objectUrl);
   }, [avatarFile, editingId]);
 
+  const filteredWarehouses = useMemo(() => {
+    if (!form.site_id) return warehouses ?? [];
+    return (warehouses ?? []).filter(
+      (warehouse) => Number(warehouse.site_id) === Number(form.site_id)
+    );
+  }, [warehouses, form.site_id]);
+
   const updateForm = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+
+      if (field === "site_id") {
+        next.warehouse_id = "";
+      }
+
+      return next;
+    });
   };
-/*
+
+  /*
   const getAvatarSrc = (user) => {
     if (user?.avatar_url) {
       if (user.avatar_url.startsWith("http")) return user.avatar_url;
@@ -92,28 +112,39 @@ export default function Users() {
       user?.name || user?.email || "User"
     )}`;
   };
-*/
-const getAvatarSrc = (user) => {
-  // 1. Si une URL complète existe déjà
-  if (user?.avatar_url && user.avatar_url.startsWith("http")) {
-    return user.avatar_url;
-  }
+  */
+  const getAvatarSrc = (user) => {
+    if (user?.avatar_url && user.avatar_url.startsWith("http")) {
+      return user.avatar_url;
+    }
 
-  // 2. Si vous avez un avatar_path, on utilise le dossier /uploads/
-  if (user?.avatar_path) {
-    // On retire un éventuel slash au début pour éviter les doubles slashes //
-    const cleanPath = user.avatar_path.startsWith('/') 
-      ? user.avatar_path.substring(1) 
-      : user.avatar_path;
-      
-    return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
-  }
+    if (user?.avatar_path) {
+      const cleanPath = user.avatar_path.startsWith("/")
+        ? user.avatar_path.substring(1)
+        : user.avatar_path;
 
-  // 3. Fallback vers l'UI Avatar
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    user?.name || user?.email || "User"
-  )}`;
-};
+      return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
+    }
+
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+      user?.name || user?.email || "User"
+    )}`;
+  };
+
+  const getWarehouseLabel = (userItem) => {
+    if (userItem?.warehouse?.name) return userItem.warehouse.name;
+
+    const match = (warehouses ?? []).find(
+      (warehouse) => Number(warehouse.id) === Number(userItem?.warehouse_id)
+    );
+
+    if (match?.name) return match.name;
+
+    if (userItem?.warehouse_id) return `Dépôt ID: ${userItem.warehouse_id}`;
+
+    return "Aucun dépôt";
+  };
+
   const resetForm = () => {
     setEditingId(null);
     setForm(emptyForm);
@@ -131,6 +162,7 @@ const getAvatarSrc = (user) => {
       phone: userItem.phone || "",
       role: userItem.role || "admin",
       site_id: userItem.site_id ? String(userItem.site_id) : "",
+      warehouse_id: userItem.warehouse_id ? String(userItem.warehouse_id) : "",
       password: "",
       is_active: Boolean(userItem.is_active ?? true),
     });
@@ -159,6 +191,10 @@ const getAvatarSrc = (user) => {
 
       if (form.site_id) {
         formData.append("site_id", form.site_id);
+      }
+
+      if (form.warehouse_id) {
+        formData.append("warehouse_id", form.warehouse_id);
       }
 
       if (form.password) {
@@ -214,7 +250,9 @@ const getAvatarSrc = (user) => {
       loadData();
     } catch (err) {
       console.error(err);
-      toast.error(err?.response?.data?.message || "Erreur suppression utilisateur");
+      toast.error(
+        err?.response?.data?.message || "Erreur suppression utilisateur"
+      );
     }
   };
 
@@ -308,9 +346,22 @@ const getAvatarSrc = (user) => {
                 ))}
               </select>
 
+              <select
+                className="rounded-xl border p-3"
+                value={form.warehouse_id}
+                onChange={(e) => updateForm("warehouse_id", e.target.value)}
+              >
+                <option value="">Aucun dépôt</option>
+                {filteredWarehouses.map((warehouse) => (
+                  <option key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name}
+                  </option>
+                ))}
+              </select>
+
               <input
                 type="password"
-                className="rounded-xl border p-3"
+                className="rounded-xl border p-3 md:col-span-2"
                 placeholder={
                   editingId
                     ? "Nouveau mot de passe (laisser vide si inchangé)"
@@ -394,19 +445,20 @@ const getAvatarSrc = (user) => {
                 key={userItem.id}
                 className="flex flex-col gap-4 rounded-xl border p-4 md:flex-row md:items-center"
               >
-<img
-  src={getAvatarSrc(userItem)}
-  alt={userItem.name}
-  className="h-14 w-14 rounded-full border object-cover"
-  onError={(e) => {
-    // Si l'URL de base échoue, on tente une dernière fois avec /uploads/ avant de mettre l'avatar texte
-    if (!e.currentTarget.src.includes('/uploads/')) {
-      e.currentTarget.src = `https://stock.dragonroyalmg.com/uploads/${userItem?.avatar_path}`;
-    } else {
-      e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(userItem?.name || "User")}`;
-    }
-  }}
-/>
+                <img
+                  src={getAvatarSrc(userItem)}
+                  alt={userItem.name}
+                  className="h-14 w-14 rounded-full border object-cover"
+                  onError={(e) => {
+                    if (!e.currentTarget.src.includes("/uploads/")) {
+                      e.currentTarget.src = `https://stock.dragonroyalmg.com/uploads/${userItem?.avatar_path}`;
+                    } else {
+                      e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+                        userItem?.name || "User"
+                      )}`;
+                    }
+                  }}
+                />
 
                 <div className="flex-1">
                   <div className="font-semibold text-slate-800">
@@ -432,7 +484,13 @@ const getAvatarSrc = (user) => {
 
                     <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700">
                       {userItem.site?.name ||
-                        (userItem.site_id ? `Site ID: ${userItem.site_id}` : "Aucun site")}
+                        (userItem.site_id
+                          ? `Site ID: ${userItem.site_id}`
+                          : "Aucun site")}
+                    </span>
+
+                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                      {getWarehouseLabel(userItem)}
                     </span>
 
                     <span

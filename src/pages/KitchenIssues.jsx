@@ -24,6 +24,16 @@ function numberToInput(value, precision = 8) {
   return num.toFixed(precision).replace(/\.?0+$/, "");
 }
 
+function formatPreciseQty(value, digits = 5) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "-";
+
+  return num.toLocaleString("fr-FR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
 function emptyLine() {
   return {
     product_id: "",
@@ -61,18 +71,6 @@ function statusBadgeClass(status) {
       return "bg-slate-100 text-slate-700";
   }
 }
-
-
-function formatPreciseQty(value, digits = 5) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return "-";
-
-  return num.toLocaleString("fr-FR", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-}
-
 
 function buildSpaPageUrl(page, extraParams = {}) {
   const url = new URL(window.location.href);
@@ -131,8 +129,43 @@ function buildScanUrl(issue) {
   });
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1280);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 1280);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  return isMobile;
+}
+
+function Drawer({ open, onClose, title, children }) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 xl:hidden">
+      <div className="absolute inset-x-0 bottom-0 max-h-[90vh] rounded-t-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b px-4 py-4">
+          <h3 className="text-lg font-bold text-slate-800">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700"
+          >
+            Fermer
+          </button>
+        </div>
+        <div className="max-h-[calc(90vh-72px)] overflow-y-auto p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function KitchenIssues() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
 
   const {
     sites,
@@ -143,10 +176,6 @@ export default function KitchenIssues() {
   } = useReferences();
 
   const [fullUnits, setFullUnits] = useState([]);
-
-  const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
-  const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
-
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -154,6 +183,22 @@ export default function KitchenIssues() {
 
   const [selectedId, setSelectedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
+
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [showCreatePanel, setShowCreatePanel] = useState(!isMobile);
+
+  const [stockByProduct, setStockByProduct] = useState({});
+
+  const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
+  const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
+  const assignedWarehouseId = user?.warehouse_id
+    ? String(user.warehouse_id)
+    : user?.warehouse?.id
+    ? String(user.warehouse.id)
+    : "";
+  const hasLockedKitchenWarehouse = Boolean(assignedWarehouseId);
 
   const [filters, setFilters] = useState({
     site_id: "",
@@ -197,6 +242,10 @@ export default function KitchenIssues() {
     };
   }, []);
 
+  useEffect(() => {
+    setShowCreatePanel(!isMobile);
+  }, [isMobile]);
+
   const effectiveUnits = useMemo(() => {
     return fullUnits.length > 0 ? fullUnits : hookUnits;
   }, [fullUnits, hookUnits]);
@@ -227,9 +276,7 @@ export default function KitchenIssues() {
     return map;
   }, [products]);
 
-  const getUnitModel = (unitId) => {
-    return unitsById.get(Number(unitId)) || null;
-  };
+  const getUnitModel = (unitId) => unitsById.get(Number(unitId)) || null;
 
   const getUnitLabel = (unit) => {
     if (!unit) return "";
@@ -265,9 +312,7 @@ export default function KitchenIssues() {
     return 1;
   };
 
-  const getProductById = (productId) => {
-    return productsById.get(Number(productId)) || null;
-  };
+  const getProductById = (productId) => productsById.get(Number(productId)) || null;
 
   const getProductUnitId = (product, type) => {
     if (!product) return "";
@@ -339,17 +384,6 @@ export default function KitchenIssues() {
     return getUnitModel(getProductStockUnitId(product));
   };
 
-  const getLineConversionPreview = (line) => {
-    const entryUnit = getLineEntryUnit(line);
-    const stockUnit = getLineStockUnit(line);
-
-    if (!entryUnit || !stockUnit) return "-";
-
-    const converted = convertQuantity(1, entryUnit.id, stockUnit.id);
-
-    return `1 ${getUnitLabel(entryUnit)} = ${formatQty(converted)} ${getUnitLabel(stockUnit)}`;
-  };
-
   const computeRequestedQuantity = (line) => {
     const product = getLineProduct(line);
     if (!product) return Number(line.requested_quantity || 0);
@@ -387,8 +421,7 @@ export default function KitchenIssues() {
       display_unit_id: preferredEntryUnitId || "",
       display_quantity: displayQuantity,
       requested_quantity:
-        rawLine.requested_quantity !== null &&
-        rawLine.requested_quantity !== undefined
+        rawLine.requested_quantity !== null && rawLine.requested_quantity !== undefined
           ? String(rawLine.requested_quantity)
           : "",
       notes: rawLine.notes || "",
@@ -411,6 +444,43 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(effectiveFormSiteId)
     );
   }, [warehouses, effectiveFormSiteId]);
+
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+
+    (products ?? []).forEach((product) => {
+      const id = String(product.category_id || product.category?.id || "");
+      const name = product.category?.name || product.category_name || "Sans catégorie";
+      if (!map.has(id)) {
+        map.set(id, { id, name });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [products]);
+
+  const catalogProducts = useMemo(() => {
+    return (products ?? []).filter((product) => {
+      const categoryId = String(product.category_id || product.category?.id || "");
+      const matchesCategory = selectedCategory ? categoryId === selectedCategory : true;
+
+      const haystack = [
+        product.name,
+        product.code,
+        product.short_name,
+        product.category?.name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      const matchesSearch = catalogSearch
+        ? haystack.includes(catalogSearch.toLowerCase())
+        : true;
+
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, selectedCategory, catalogSearch]);
 
   const visibleIssues = useMemo(() => {
     if (!isRestrictedSiteUser || !restrictedSiteId) return issues;
@@ -512,6 +582,27 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
+    const lockedKitchenWarehouse = hasLockedKitchenWarehouse
+      ? siteWarehouses.find((w) => Number(w.id) === Number(assignedWarehouseId))
+      : null;
+
+    const fallbackToWarehouseId = lockedKitchenWarehouse?.id
+      ? String(lockedKitchenWarehouse.id)
+      : siteWarehouses[1]?.id
+      ? String(siteWarehouses[1].id)
+      : siteWarehouses[0]?.id
+      ? String(siteWarehouses[0].id)
+      : "";
+
+    const fallbackFromWarehouseId =
+      siteWarehouses.find((w) => String(w.id) !== String(fallbackToWarehouseId))?.id
+        ? String(
+            siteWarehouses.find((w) => String(w.id) !== String(fallbackToWarehouseId)).id
+          )
+        : siteWarehouses[0]?.id
+        ? String(siteWarehouses[0].id)
+        : "";
+
     setForm((prev) => ({
       ...prev,
       site_id: siteIdToUse,
@@ -519,18 +610,14 @@ export default function KitchenIssues() {
         prev.from_warehouse_id &&
         siteWarehouses.some((w) => Number(w.id) === Number(prev.from_warehouse_id))
           ? prev.from_warehouse_id
-          : siteWarehouses[0]?.id
-          ? String(siteWarehouses[0].id)
-          : "",
+          : fallbackFromWarehouseId,
       to_warehouse_id:
-        prev.to_warehouse_id &&
-        siteWarehouses.some((w) => Number(w.id) === Number(prev.to_warehouse_id))
+        hasLockedKitchenWarehouse && fallbackToWarehouseId
+          ? fallbackToWarehouseId
+          : prev.to_warehouse_id &&
+            siteWarehouses.some((w) => Number(w.id) === Number(prev.to_warehouse_id))
           ? prev.to_warehouse_id
-          : siteWarehouses[1]?.id
-          ? String(siteWarehouses[1].id)
-          : siteWarehouses[0]?.id
-          ? String(siteWarehouses[0].id)
-          : "",
+          : fallbackToWarehouseId,
     }));
 
     setFilters((prev) => ({
@@ -539,46 +626,59 @@ export default function KitchenIssues() {
         ? String(preferredSite.id)
         : prev.site_id || String(preferredSite.id),
     }));
-  }, [refsLoading, sites, warehouses, user, isRestrictedSiteUser, form.site_id]);
+  }, [
+    refsLoading,
+    sites,
+    warehouses,
+    user,
+    isRestrictedSiteUser,
+    form.site_id,
+    hasLockedKitchenWarehouse,
+    assignedWarehouseId,
+  ]);
 
   useEffect(() => {
-    if (!effectiveFormSiteId) return;
+    setStockByProduct({});
+  }, [form.from_warehouse_id, form.site_id]);
 
-    const sameSiteWarehouses = (warehouses ?? []).filter(
-      (w) => Number(w.site_id) === Number(effectiveFormSiteId)
-    );
+  const fetchAvailableStock = async (productId) => {
+    if (!productId || !form.from_warehouse_id || !effectiveFormSiteId) return;
 
-    const fromValid = sameSiteWarehouses.some(
-      (w) => Number(w.id) === Number(form.from_warehouse_id)
-    );
-    const toValid = sameSiteWarehouses.some(
-      (w) => Number(w.id) === Number(form.to_warehouse_id)
-    );
+    try {
+      const res = await api.get("/stock-levels", {
+        params: {
+          site_id: effectiveFormSiteId,
+          warehouse_id: form.from_warehouse_id,
+          product_id: productId,
+          report_date: new Date().toISOString().slice(0, 10),
+        },
+      });
 
-    setForm((prev) => ({
-      ...prev,
-      site_id: isRestrictedSiteUser ? restrictedSiteId : prev.site_id,
-      from_warehouse_id: fromValid
-        ? prev.from_warehouse_id
-        : sameSiteWarehouses[0]?.id
-        ? String(sameSiteWarehouses[0].id)
-        : "",
-      to_warehouse_id: toValid
-        ? prev.to_warehouse_id
-        : sameSiteWarehouses[1]?.id
-        ? String(sameSiteWarehouses[1].id)
-        : sameSiteWarehouses[0]?.id
-        ? String(sameSiteWarehouses[0].id)
-        : "",
-    }));
-  }, [
-    effectiveFormSiteId,
-    warehouses,
-    form.from_warehouse_id,
-    form.to_warehouse_id,
-    isRestrictedSiteUser,
-    restrictedSiteId,
-  ]);
+      const rows = asArray(res.data);
+      const first = rows[0] || null;
+
+      setStockByProduct((prev) => ({
+        ...prev,
+        [String(productId)]: {
+          available: Number(first?.quantity_available ?? 0),
+          on_hand: Number(first?.quantity_on_hand ?? 0),
+        },
+      }));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (!form.from_warehouse_id || !effectiveFormSiteId) return;
+    const productIds = form.lines
+      .map((line) => line.product_id)
+      .filter(Boolean);
+
+    [...new Set(productIds)].forEach((productId) => {
+      fetchAvailableStock(productId);
+    });
+  }, [form.from_warehouse_id, effectiveFormSiteId]); // eslint-disable-line
 
   const resetForm = () => {
     const preferredSite =
@@ -592,18 +692,36 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
+    const lockedKitchenWarehouse = hasLockedKitchenWarehouse
+      ? siteWarehouses.find((w) => Number(w.id) === Number(assignedWarehouseId))
+      : null;
+
+    const toWarehouseId = lockedKitchenWarehouse?.id
+      ? String(lockedKitchenWarehouse.id)
+      : siteWarehouses[1]?.id
+      ? String(siteWarehouses[1].id)
+      : siteWarehouses[0]?.id
+      ? String(siteWarehouses[0].id)
+      : "";
+
+    const fromWarehouseId =
+      siteWarehouses.find((w) => String(w.id) !== String(toWarehouseId))?.id
+        ? String(siteWarehouses.find((w) => String(w.id) !== String(toWarehouseId)).id)
+        : siteWarehouses[0]?.id
+        ? String(siteWarehouses[0].id)
+        : "";
+
     setEditingId(null);
     setForm({
       site_id: isRestrictedSiteUser ? restrictedSiteId : siteIdToUse,
-      from_warehouse_id: siteWarehouses[0]?.id ? String(siteWarehouses[0].id) : "",
-      to_warehouse_id: siteWarehouses[1]?.id
-        ? String(siteWarehouses[1].id)
-        : siteWarehouses[0]?.id
-        ? String(siteWarehouses[0].id)
-        : "",
+      from_warehouse_id: fromWarehouseId,
+      to_warehouse_id: toWarehouseId,
       notes: "",
       lines: [emptyLine()],
     });
+    setStockByProduct({});
+    setShowCreatePanel(true);
+    setMobileDrawerOpen(false);
   };
 
   const startEdit = (issue) => {
@@ -639,7 +757,7 @@ export default function KitchenIssues() {
           ? issue.lines.map((line) => buildLineFromExisting(line))
           : [emptyLine()],
     });
-
+    setShowCreatePanel(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -658,6 +776,61 @@ export default function KitchenIssues() {
       };
       return { ...prev, lines };
     });
+
+    if (productId) {
+      fetchAvailableStock(productId);
+    }
+  };
+
+  const addProductToCart = (product) => {
+    const preferredUnitId = getPreferredEntryUnitId(product);
+
+    setForm((prev) => {
+      const existingIndex = prev.lines.findIndex(
+        (line) => Number(line.product_id) === Number(product.id)
+      );
+
+      if (existingIndex >= 0) {
+        const lines = [...prev.lines];
+        const currentQty = Number(lines[existingIndex].display_quantity || 0);
+        const nextQty = currentQty + 1;
+        lines[existingIndex] = {
+          ...lines[existingIndex],
+          display_unit_id: lines[existingIndex].display_unit_id || preferredUnitId,
+          display_quantity: numberToInput(nextQty, 8),
+        };
+        const requestedQty = computeRequestedQuantity(lines[existingIndex]);
+        lines[existingIndex].requested_quantity =
+          requestedQty > 0 ? String(requestedQty) : "";
+        return { ...prev, lines };
+      }
+
+      const newLine = {
+        product_id: String(product.id),
+        display_unit_id: preferredUnitId,
+        display_quantity: "1",
+        requested_quantity: "",
+        notes: "",
+      };
+
+      const requestedQty = computeRequestedQuantity(newLine);
+      newLine.requested_quantity = requestedQty > 0 ? String(requestedQty) : "";
+
+      const cleaned =
+        prev.lines.length === 1 && !prev.lines[0].product_id
+          ? []
+          : prev.lines;
+
+      return {
+        ...prev,
+        lines: [...cleaned, newLine],
+      };
+    });
+
+    fetchAvailableStock(product.id);
+    if (isMobile) {
+      setMobileDrawerOpen(true);
+    }
   };
 
   const handleDisplayQuantityChange = (index, value) => {
@@ -732,18 +905,67 @@ export default function KitchenIssues() {
     });
   };
 
+  const adjustLineQuantity = (index, delta) => {
+    setForm((prev) => {
+      const lines = [...prev.lines];
+      const current = Number(lines[index].display_quantity || 0);
+      const next = Math.max(0, current + delta);
+
+      lines[index] = {
+        ...lines[index],
+        display_quantity: next > 0 ? numberToInput(next, 8) : "",
+      };
+
+      const requestedQty = computeRequestedQuantity(lines[index]);
+      lines[index].requested_quantity =
+        next > 0 && requestedQty > 0 ? String(requestedQty) : "";
+
+      return { ...prev, lines };
+    });
+  };
+
   const addLine = () => {
     setForm((prev) => ({
       ...prev,
       lines: [...prev.lines, emptyLine()],
     }));
+    if (isMobile) {
+      setMobileDrawerOpen(true);
+    }
   };
 
   const removeLine = (index) => {
     setForm((prev) => ({
       ...prev,
-      lines: prev.lines.filter((_, i) => i !== index),
+      lines:
+        prev.lines.filter((_, i) => i !== index).length > 0
+          ? prev.lines.filter((_, i) => i !== index)
+          : [emptyLine()],
     }));
+  };
+
+  const getLineEntryUnitOptions = (line) => {
+    const product = getLineProduct(line);
+    return getProductEntryUnitIds(product)
+      .map((unitId) => getUnitModel(unitId))
+      .filter(Boolean);
+  };
+
+  const getIssueLineUnitLabel = (line) => {
+    const product = line?.product || getProductById(line?.product_id);
+    const stockUnit = getUnitModel(getProductStockUnitId(product));
+    return getUnitLabel(stockUnit);
+  };
+
+  const getAvailableStock = (productId) => {
+    return Number(stockByProduct[String(productId)]?.available ?? 0);
+  };
+
+  const isLineOverStock = (line) => {
+    if (!line.product_id) return false;
+    const requestedQty = computeRequestedQuantity(line);
+    const available = getAvailableStock(line.product_id);
+    return requestedQty > 0 && requestedQty > available;
   };
 
   const submit = async (e) => {
@@ -756,6 +978,18 @@ export default function KitchenIssues() {
 
     if (Number(form.from_warehouse_id) === Number(form.to_warehouse_id)) {
       toast.error("Le dépôt source doit être différent du dépôt cuisine.");
+      return;
+    }
+
+    const invalidStockLine = form.lines.find(
+      (line) =>
+        line.product_id &&
+        Number(line.display_quantity || 0) > 0 &&
+        isLineOverStock(line)
+    );
+
+    if (invalidStockLine) {
+      toast.error("Une ligne dépasse le stock disponible du dépôt source.");
       return;
     }
 
@@ -871,27 +1105,223 @@ export default function KitchenIssues() {
     }
   };
 
-  const totalEstimated = useMemo(() => {
-    return form.lines.reduce((sum, line) => {
-      const product = getLineProduct(line);
-      const price = Number(product?.last_purchase_price ?? 0);
-      const requestedQty = computeRequestedQuantity(line);
-      return sum + requestedQty * price;
-    }, 0);
-  }, [form.lines, products, unitsById]);
+  const cartCount = useMemo(() => {
+    return form.lines.filter((line) => line.product_id).length;
+  }, [form.lines]);
 
-  const getLineEntryUnitOptions = (line) => {
-    const product = getLineProduct(line);
-    return getProductEntryUnitIds(product)
-      .map((unitId) => getUnitModel(unitId))
-      .filter(Boolean);
-  };
+  const renderCartContent = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-slate-100 p-3">
+          <div className="text-sm text-slate-500">Lignes</div>
+          <div className="text-xl font-bold text-slate-800">{cartCount}</div>
+        </div>
+        <div className="rounded-xl bg-slate-100 p-3">
+          <div className="text-sm text-slate-500">Dépôt source</div>
+          <div className="text-sm font-bold text-slate-800">
+            {currentSiteWarehouses.find(
+              (w) => Number(w.id) === Number(form.from_warehouse_id)
+            )?.name || "-"}
+          </div>
+        </div>
+      </div>
 
-  const getIssueLineUnitLabel = (line) => {
-    const product = line?.product || getProductById(line?.product_id);
-    const stockUnit = getUnitModel(getProductStockUnitId(product));
-    return getUnitLabel(stockUnit);
-  };
+      <div className="space-y-3">
+        {form.lines.map((line, index) => {
+          const product = getLineProduct(line);
+          const entryUnit = getLineEntryUnit(line);
+          const stockUnit = getLineStockUnit(line);
+          const entryUnitOptions = getLineEntryUnitOptions(line);
+          const computedRequestedQty = computeRequestedQuantity(line);
+          const availableStock = getAvailableStock(line.product_id);
+          const overStock = isLineOverStock(line);
+
+          const availableInEntryUnit =
+            entryUnit && stockUnit
+              ? convertQuantity(availableStock, stockUnit.id, entryUnit.id)
+              : availableStock;
+
+          return (
+            <div
+              key={index}
+              className={`rounded-2xl border p-4 ${
+                overStock
+                  ? "border-red-300 bg-red-50"
+                  : "border-slate-200 bg-white"
+              }`}
+            >
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <select
+                    className="w-full rounded-xl border p-3"
+                    value={line.product_id}
+                    onChange={(e) => handleProductChange(index, e.target.value)}
+                  >
+                    <option value="">Produit</option>
+                    {(products ?? []).map((productItem) => (
+                      <option key={productItem.id} value={productItem.id}>
+                        {productItem.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => removeLine(index)}
+                  disabled={form.lines.length === 1}
+                  className="rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
+                >
+                  X
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <select
+                  className="w-full rounded-xl border p-3"
+                  value={line.display_unit_id || ""}
+                  onChange={(e) => handleDisplayUnitChange(index, e.target.value)}
+                  disabled={!product || entryUnitOptions.length <= 1}
+                >
+                  <option value="">Unité</option>
+                  {entryUnitOptions.map((unit) => (
+                    <option key={unit.id} value={unit.id}>
+                      {getUnitLabel(unit)}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => adjustLineQuantity(index, -1)}
+                    className="rounded-xl bg-slate-200 px-4 py-3 text-lg font-bold text-slate-700"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="0.000001"
+                    className="w-full rounded-xl border p-3 text-center"
+                    placeholder="Quantité"
+                    value={line.display_quantity}
+                    onChange={(e) => handleDisplayQuantityChange(index, e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => adjustLineQuantity(index, 1)}
+                    className="rounded-xl bg-slate-900 px-4 py-3 text-lg font-bold text-white"
+                  >
+                    +
+                  </button>
+                </div>
+
+                <input
+                  className="w-full rounded-xl border p-3"
+                  placeholder="Notes ligne"
+                  value={line.notes}
+                  onChange={(e) => updateLine(index, "notes", e.target.value)}
+                />
+              </div>
+
+              {product && (
+                <div className="mt-3 rounded-xl bg-slate-50 px-3 py-3 text-xs text-slate-600">
+                  <div>
+                    Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
+                  </div>
+                  <div className="mt-1">
+                    Équiv. stock :{" "}
+                    <strong>
+                      {computedRequestedQty > 0
+                        ? formatPreciseQty(computedRequestedQty, 5)
+                        : "0,00000"}{" "}
+                      {getUnitLabel(stockUnit) || "-"}
+                    </strong>
+                  </div>
+                  <div className="mt-1 text-slate-500">
+                    Conversion :{" "}
+                    {entryUnit && stockUnit
+                      ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
+                          convertQuantity(1, entryUnit.id, stockUnit.id),
+                          5
+                        )} ${getUnitLabel(stockUnit)}`
+                      : "-"}
+                  </div>
+                  <div className="mt-1">
+                    Stock disponible :{" "}
+                    <strong className={overStock ? "text-red-700" : "text-emerald-700"}>
+                      {formatPreciseQty(availableStock, 5)} {getUnitLabel(stockUnit) || "-"}
+                    </strong>
+                  </div>
+                  {entryUnit && (
+                    <div className="mt-1 text-slate-500">
+                      Soit env. {formatPreciseQty(availableInEntryUnit, 5)}{" "}
+                      {getUnitLabel(entryUnit)}
+                    </div>
+                  )}
+                  {overStock && (
+                    <div className="mt-2 rounded-lg bg-red-100 px-2 py-2 text-red-700">
+                      La quantité demandée dépasse le stock disponible.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="rounded-xl border p-4">
+        <div className="mb-2 text-sm font-semibold text-slate-700">Notes générales</div>
+        <textarea
+          className="min-h-[100px] w-full rounded-xl border p-3"
+          placeholder="Notes générales du BSC"
+          value={form.notes}
+          onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
+        />
+      </div>
+
+      <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+        Astuce : choisissez d’abord l’unité, puis la quantité. Le système convertit
+        automatiquement vers l’unité de stock.
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <button
+          type="button"
+          onClick={addLine}
+          className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
+        >
+          Ajouter ligne vide
+        </button>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
+        >
+          {submitting
+            ? "Enregistrement..."
+            : isEditing
+            ? "Mettre à jour le BSC"
+            : "Créer le BSC"}
+        </button>
+
+        {isEditing && (
+          <button
+            type="button"
+            onClick={resetForm}
+            className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
+          >
+            Annuler
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const shouldHideFormOnMobile =
+    isMobile && selectedIssue && !showCreatePanel && !isEditing;
 
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
@@ -899,287 +1329,254 @@ export default function KitchenIssues() {
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-      <div className="xl:col-span-6">
-        <div className="rounded-2xl bg-white p-6 shadow">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-800">
-                {isEditing ? "Modifier le BSC" : "Bon de Sortie Cuisine"}
-              </h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Demande de sortie interne du dépôt principal vers le dépôt cuisine.
-              </p>
-              {isRestrictedSiteUser && (
-                <p className="mt-1 text-xs text-slate-400">
-                  Affichage limité au site d’affectation.
+      {!shouldHideFormOnMobile && (
+        <div className="xl:col-span-6">
+          <div className="rounded-2xl bg-white p-6 shadow">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h1 className="text-3xl font-bold text-slate-800">
+                  {isEditing ? "Modifier le BSC" : "Bon de Sortie Cuisine"}
+                </h1>
+                <p className="mt-1 text-sm text-slate-500">
+                  Demande de sortie interne du dépôt principal vers le dépôt cuisine.
                 </p>
+                {isRestrictedSiteUser && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Affichage limité au site d’affectation.
+                  </p>
+                )}
+              </div>
+
+              {isMobile && (
+                <button
+                  type="button"
+                  onClick={() => setMobileDrawerOpen(true)}
+                  className="rounded-xl bg-slate-900 px-4 py-2 text-white xl:hidden"
+                >
+                  Voir la demande ({cartCount})
+                </button>
               )}
             </div>
 
-            {isEditing && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded-xl bg-slate-200 px-4 py-2 text-slate-800"
-              >
-                Annuler
-              </button>
-            )}
-          </div>
+            <form onSubmit={submit} className="space-y-4">
+              {!hasLockedKitchenWarehouse ? (
+                <>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <select
+                      className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
+                      value={form.site_id}
+                      disabled={isRestrictedSiteUser}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          site_id: e.target.value,
+                          from_warehouse_id: "",
+                          to_warehouse_id: "",
+                        }))
+                      }
+                    >
+                      <option value="">Choisir un site</option>
+                      {visibleSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name}
+                        </option>
+                      ))}
+                    </select>
 
-          <form onSubmit={submit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <select
-                className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
-                value={form.site_id}
-                disabled={isRestrictedSiteUser}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    site_id: e.target.value,
-                    from_warehouse_id: "",
-                    to_warehouse_id: "",
-                  }))
-                }
-              >
-                <option value="">Choisir un site</option>
-                {visibleSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </select>
+                    <select
+                      className="rounded-xl border p-3"
+                      value={form.from_warehouse_id}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          from_warehouse_id: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Dépôt source</option>
+                      {currentSiteWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              <input
-                className="rounded-xl border p-3"
-                value={form.notes}
-                placeholder="Notes générales"
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, notes: e.target.value }))
-                }
-              />
-            </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <select
+                      className="rounded-xl border p-3"
+                      value={form.to_warehouse_id}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          to_warehouse_id: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">Dépôt cuisine</option>
+                      {currentSiteWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-2xl border bg-slate-50 p-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div>
+                      <div className="text-xs text-slate-500">Site</div>
+                      <div className="font-semibold text-slate-800">
+                        {visibleSites.find((site) => Number(site.id) === Number(form.site_id))
+                          ?.name || "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500">Dépôt source</div>
+                      <div className="font-semibold text-slate-800">
+                        {currentSiteWarehouses.find(
+                          (warehouse) =>
+                            Number(warehouse.id) === Number(form.from_warehouse_id)
+                        )?.name || "-"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-slate-500">Dépôt cuisine</div>
+                      <div className="font-semibold text-slate-800">
+                        {currentSiteWarehouses.find(
+                          (warehouse) =>
+                            Number(warehouse.id) === Number(form.to_warehouse_id)
+                        )?.name || "-"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <select
-                className="rounded-xl border p-3"
-                value={form.from_warehouse_id}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    from_warehouse_id: e.target.value,
-                  }))
-                }
-              >
-                <option value="">Dépôt source</option>
-                {currentSiteWarehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+                <div className="xl:col-span-5">
+                  <div className="rounded-2xl border p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h2 className="text-lg font-bold text-slate-800">Catégories</h2>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCategory("");
+                          setCatalogSearch("");
+                        }}
+                        className="rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700"
+                      >
+                        Reset
+                      </button>
+                    </div>
 
-              <select
-                className="rounded-xl border p-3"
-                value={form.to_warehouse_id}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    to_warehouse_id: e.target.value,
-                  }))
-                }
-              >
-                <option value="">Dépôt cuisine</option>
-                {currentSiteWarehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+                    <div className="flex gap-2 overflow-x-auto pb-2 xl:block xl:space-y-2 xl:overflow-visible">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCategory("")}
+                        className={`shrink-0 rounded-xl px-3 py-2 text-left ${
+                          selectedCategory === ""
+                            ? "bg-slate-900 text-white"
+                            : "bg-slate-100 text-slate-800"
+                        }`}
+                      >
+                        Toutes
+                      </button>
 
-            <div className="rounded-2xl border p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="text-lg font-semibold text-slate-800">
-                  Lignes produits
+                      {categoryOptions.map((category) => (
+                        <button
+                          key={category.id || category.name}
+                          type="button"
+                          onClick={() => setSelectedCategory(String(category.id))}
+                          className={`shrink-0 rounded-xl px-3 py-2 text-left ${
+                            String(selectedCategory) === String(category.id)
+                              ? "bg-slate-900 text-white"
+                              : "bg-slate-100 text-slate-800"
+                          }`}
+                        >
+                          {category.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={addLine}
-                  className="rounded-xl bg-slate-800 px-4 py-2 text-white"
-                >
-                  Ajouter ligne
-                </button>
-              </div>
+                <div className="xl:col-span-7">
+                  <div className="rounded-2xl border p-4">
+                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <h2 className="text-lg font-bold text-slate-800">Articles</h2>
+                      <input
+                        className="rounded-xl border p-3"
+                        placeholder="Rechercher un produit..."
+                        value={catalogSearch}
+                        onChange={(e) => setCatalogSearch(e.target.value)}
+                      />
+                    </div>
 
-              <div className="space-y-3">
-                {form.lines.map((line, index) => {
-                  const product = getLineProduct(line);
-                  const entryUnit = getLineEntryUnit(line);
-                  const stockUnit = getLineStockUnit(line);
-                  const entryUnitOptions = getLineEntryUnitOptions(line);
-                  const computedRequestedQty = computeRequestedQuantity(line);
-
-                  return (
-                    <div key={index} className="rounded-xl border p-3">
-                      <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
-                        <div className="lg:col-span-4">
-                          <select
-                            className="w-full rounded-xl border p-3"
-                            value={line.product_id}
-                            onChange={(e) =>
-                              handleProductChange(index, e.target.value)
-                            }
-                          >
-                            <option value="">Produit</option>
-                            {(products ?? []).map((productItem) => (
-                              <option key={productItem.id} value={productItem.id}>
-                                {productItem.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="lg:col-span-3">
-                          <input
-                            type="number"
-                            step="0.000001"
-                            className="w-full rounded-xl border p-3"
-                            placeholder="Quantité"
-                            value={line.display_quantity}
-                            onChange={(e) =>
-                              handleDisplayQuantityChange(index, e.target.value)
-                            }
-                          />
-                        </div>
-
-                        <div className="lg:col-span-2">
-                          <select
-                            className="w-full rounded-xl border p-3"
-                            value={line.display_unit_id || ""}
-                            onChange={(e) =>
-                              handleDisplayUnitChange(index, e.target.value)
-                            }
-                            disabled={entryUnitOptions.length <= 1}
-                          >
-                            <option value="">Unité</option>
-                            {entryUnitOptions.map((unit) => (
-                              <option key={unit.id} value={unit.id}>
-                                {getUnitLabel(unit)}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div className="lg:col-span-2">
-                          <input
-                            className="w-full rounded-xl border p-3"
-                            placeholder="Notes ligne"
-                            value={line.notes}
-                            onChange={(e) => updateLine(index, "notes", e.target.value)}
-                          />
-                        </div>
-
-                        <div className="lg:col-span-1">
-                          <button
-                            type="button"
-                            onClick={() => removeLine(index)}
-                            disabled={form.lines.length === 1}
-                            className="w-full rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
-                          >
-                            X
-                          </button>
-                        </div>
-                      </div>
-
-                      {product && (
-                        <div className="mt-2">
-                          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                            <div>
-                              Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
-                            </div>
-                              <div className="mt-1">
-                                Équiv. stock :{" "}
-                                <strong>
-                                  {computedRequestedQty > 0 ? formatPreciseQty(computedRequestedQty, 5) : "0,00000"}{" "}
-                                  {getUnitLabel(stockUnit) || "-"}
-                                </strong>
-                              </div>
-                              <div className="mt-1 text-slate-500">
-                                Conversion :{" "}
-                                {entryUnit && stockUnit
-                                  ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
-                                      convertQuantity(1, entryUnit.id, stockUnit.id),
-                                      5
-                                    )} ${getUnitLabel(stockUnit)}`
-                                  : "-"}
-                              </div>
-                              <div className="mt-1 text-[11px] text-slate-400">
-                                Valeur brute : {String(computedRequestedQty || 0)}
-                              </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      {catalogProducts.map((product) => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => addProductToCart(product)}
+                          className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
+                        >
+                          <div className="font-semibold text-slate-800">{product.name}</div>
+                          <div className="text-sm text-slate-500">{product.code || "-"}</div>
+                          <div className="mt-2 text-xs text-slate-400">
+                            {product.category?.name || "Sans catégorie"}
                           </div>
+                        </button>
+                      ))}
+
+                      {catalogProducts.length === 0 && (
+                        <div className="rounded-xl bg-slate-50 p-4 text-slate-500 md:col-span-2">
+                          Aucun produit trouvé.
                         </div>
                       )}
                     </div>
-                  );
-                })}
+                  </div>
+                </div>
               </div>
 
-              <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-                Estimation indicative : <strong>{formatMoney(totalEstimated)} Ar</strong>
-              </div>
-
-              <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
-                Astuce : le chef saisit la quantité dans l’unité pratique.
-                Le système convertit automatiquement vers l’unité de stock réelle.
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                disabled={submitting}
-                className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
-              >
-                {submitting
-                  ? "Enregistrement..."
-                  : isEditing
-                  ? "Mettre à jour le BSC"
-                  : "Créer le BSC"}
-              </button>
-
-              {isEditing && (
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
-                >
-                  Annuler
-                </button>
-              )}
-            </div>
-          </form>
+              <div className="hidden xl:block">{renderCartContent()}</div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="xl:col-span-6">
+      <div className={shouldHideFormOnMobile ? "xl:col-span-12" : "xl:col-span-6"}>
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-slate-800">
-                Historique BSC
-              </h2>
+              <h2 className="text-2xl font-bold text-slate-800">Historique BSC</h2>
               <p className="mt-1 text-sm text-slate-500">
                 Impression ticket, scan rapide, édition avant sortie et suivi des états.
               </p>
             </div>
 
-            <button
-              onClick={loadIssues}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-white"
-            >
-              Rafraîchir
-            </button>
+<div className="flex gap-2">
+              {isMobile && selectedIssue && !showCreatePanel && !isEditing && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreatePanel(true);
+                    setSelectedId(null);
+                  }}
+                  className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
+                >
+                  Nouvelle demande
+                </button>
+              )}
+
+              <button
+                onClick={loadIssues}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-white"
+              >
+                Rafraîchir
+              </button>
+            </div>
           </div>
 
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1243,7 +1640,12 @@ export default function KitchenIssues() {
                   return (
                     <div
                       key={issue.id}
-                      onClick={() => setSelectedId(issue.id)}
+                      onClick={() => {
+                        setSelectedId(issue.id);
+                        if (isMobile) {
+                          setShowCreatePanel(false);
+                        }
+                      }}
                       className={`cursor-pointer rounded-xl border p-4 transition ${
                         Number(selectedId) === Number(issue.id)
                           ? "border-blue-500 bg-blue-50"
@@ -1326,9 +1728,7 @@ export default function KitchenIssues() {
                             e.stopPropagation();
                             deleteIssue(issue);
                           }}
-                          disabled={
-                            deletingId === issue.id || issue.status !== "pending"
-                          }
+                          disabled={deletingId === issue.id || issue.status !== "pending"}
                           className="rounded-xl bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-40"
                         >
                           {deletingId === issue.id ? "Suppression..." : "Supprimer"}
@@ -1419,9 +1819,7 @@ export default function KitchenIssues() {
                       </div>
 
                       <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">
-                          Reçu en cuisine
-                        </div>
+                        <div className="text-sm text-slate-500">Reçu en cuisine</div>
                         <div className="font-semibold text-slate-800">
                           {formatDateTime(selectedIssue.received_at)}
                         </div>
@@ -1599,6 +1997,14 @@ export default function KitchenIssues() {
           )}
         </div>
       </div>
+
+      <Drawer
+        open={mobileDrawerOpen}
+        onClose={() => setMobileDrawerOpen(false)}
+        title={`Demande BSC (${cartCount})`}
+      >
+        {renderCartContent()}
+      </Drawer>
     </div>
   );
 }
