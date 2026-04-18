@@ -37,6 +37,7 @@ function formatPreciseQty(value, digits = 5) {
 function emptyLine() {
   return {
     product_id: "",
+    search_text: "",
     display_quantity: "",
     display_unit_id: "",
     requested_quantity: "",
@@ -130,10 +131,10 @@ function buildScanUrl(issue) {
 }
 
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1280);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
 
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 1280);
+    const onResize = () => setIsMobile(window.innerWidth < 1024);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -145,8 +146,8 @@ function Drawer({ open, onClose, title, children }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 xl:hidden">
-      <div className="absolute inset-x-0 bottom-0 max-h-[90vh] rounded-t-3xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 bg-black/40">
+      <div className="absolute inset-y-0 right-0 w-full max-w-xl bg-white shadow-2xl lg:max-w-2xl">
         <div className="flex items-center justify-between border-b px-4 py-4">
           <h3 className="text-lg font-bold text-slate-800">{title}</h3>
           <button
@@ -157,7 +158,7 @@ function Drawer({ open, onClose, title, children }) {
             Fermer
           </button>
         </div>
-        <div className="max-h-[calc(90vh-72px)] overflow-y-auto p-4">{children}</div>
+        <div className="h-[calc(100vh-73px)] overflow-y-auto p-4">{children}</div>
       </div>
     </div>
   );
@@ -186,19 +187,21 @@ export default function KitchenIssues() {
 
   const [catalogSearch, setCatalogSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
-  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-  const [showCreatePanel, setShowCreatePanel] = useState(!isMobile);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [productSearchIndex, setProductSearchIndex] = useState(null);
 
   const [stockByProduct, setStockByProduct] = useState({});
 
   const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
   const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
+
   const assignedWarehouseId = user?.warehouse_id
     ? String(user.warehouse_id)
     : user?.warehouse?.id
     ? String(user.warehouse.id)
     : "";
-  const hasLockedKitchenWarehouse = Boolean(assignedWarehouseId);
+
+  const hasLockedDestinationWarehouse = Boolean(assignedWarehouseId);
 
   const [filters, setFilters] = useState({
     site_id: "",
@@ -229,9 +232,7 @@ export default function KitchenIssues() {
         }
       } catch (err) {
         console.error("Erreur chargement complet des unités:", err);
-        if (mounted) {
-          setFullUnits([]);
-        }
+        if (mounted) setFullUnits([]);
       }
     };
 
@@ -241,10 +242,6 @@ export default function KitchenIssues() {
       mounted = false;
     };
   }, []);
-
-  useEffect(() => {
-    setShowCreatePanel(!isMobile);
-  }, [isMobile]);
 
   const effectiveUnits = useMemo(() => {
     return fullUnits.length > 0 ? fullUnits : hookUnits;
@@ -304,9 +301,7 @@ export default function KitchenIssues() {
 
     for (const candidate of candidates) {
       const parsed = parseRatioValue(candidate);
-      if (parsed !== null && parsed > 0) {
-        return parsed;
-      }
+      if (parsed !== null && parsed > 0) return parsed;
     }
 
     return 1;
@@ -418,6 +413,7 @@ export default function KitchenIssues() {
 
     return {
       product_id: rawLine.product_id ? String(rawLine.product_id) : "",
+      search_text: product?.name || "",
       display_unit_id: preferredEntryUnitId || "",
       display_quantity: displayQuantity,
       requested_quantity:
@@ -439,11 +435,24 @@ export default function KitchenIssues() {
     form.site_id || (isRestrictedSiteUser ? restrictedSiteId : "");
 
   const currentSiteWarehouses = useMemo(() => {
-    if (!effectiveFormSiteId) return warehouses ?? [];
+    if (!effectiveFormSiteId) return [];
     return (warehouses ?? []).filter(
       (w) => Number(w.site_id) === Number(effectiveFormSiteId)
     );
   }, [warehouses, effectiveFormSiteId]);
+
+  const destinationWarehouse = useMemo(() => {
+    if (!form.to_warehouse_id) return null;
+    return currentSiteWarehouses.find(
+      (w) => Number(w.id) === Number(form.to_warehouse_id)
+    );
+  }, [currentSiteWarehouses, form.to_warehouse_id]);
+
+  const sourceWarehouseOptions = useMemo(() => {
+    return currentSiteWarehouses.filter(
+      (w) => Number(w.id) !== Number(form.to_warehouse_id)
+    );
+  }, [currentSiteWarehouses, form.to_warehouse_id]);
 
   const categoryOptions = useMemo(() => {
     const map = new Map();
@@ -451,6 +460,7 @@ export default function KitchenIssues() {
     (products ?? []).forEach((product) => {
       const id = String(product.category_id || product.category?.id || "");
       const name = product.category?.name || product.category_name || "Sans catégorie";
+
       if (!map.has(id)) {
         map.set(id, { id, name });
       }
@@ -481,6 +491,10 @@ export default function KitchenIssues() {
       return matchesCategory && matchesSearch;
     });
   }, [products, selectedCategory, catalogSearch]);
+
+  const visibleCatalogProducts = useMemo(() => {
+    return catalogProducts.slice(0, 8);
+  }, [catalogProducts]);
 
   const visibleIssues = useMemo(() => {
     if (!isRestrictedSiteUser || !restrictedSiteId) return issues;
@@ -582,25 +596,21 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
-    const lockedKitchenWarehouse = hasLockedKitchenWarehouse
+    const lockedDestination = hasLockedDestinationWarehouse
       ? siteWarehouses.find((w) => Number(w.id) === Number(assignedWarehouseId))
       : null;
 
-    const fallbackToWarehouseId = lockedKitchenWarehouse?.id
-      ? String(lockedKitchenWarehouse.id)
+    const fallbackToId = lockedDestination?.id
+      ? String(lockedDestination.id)
       : siteWarehouses[1]?.id
       ? String(siteWarehouses[1].id)
       : siteWarehouses[0]?.id
       ? String(siteWarehouses[0].id)
       : "";
 
-    const fallbackFromWarehouseId =
-      siteWarehouses.find((w) => String(w.id) !== String(fallbackToWarehouseId))?.id
-        ? String(
-            siteWarehouses.find((w) => String(w.id) !== String(fallbackToWarehouseId)).id
-          )
-        : siteWarehouses[0]?.id
-        ? String(siteWarehouses[0].id)
+    const fallbackFromId =
+      siteWarehouses.find((w) => String(w.id) !== String(fallbackToId))?.id
+        ? String(siteWarehouses.find((w) => String(w.id) !== String(fallbackToId)).id)
         : "";
 
     setForm((prev) => ({
@@ -608,16 +618,11 @@ export default function KitchenIssues() {
       site_id: siteIdToUse,
       from_warehouse_id:
         prev.from_warehouse_id &&
-        siteWarehouses.some((w) => Number(w.id) === Number(prev.from_warehouse_id))
+        siteWarehouses.some((w) => Number(w.id) === Number(prev.from_warehouse_id)) &&
+        String(prev.from_warehouse_id) !== String(fallbackToId)
           ? prev.from_warehouse_id
-          : fallbackFromWarehouseId,
-      to_warehouse_id:
-        hasLockedKitchenWarehouse && fallbackToWarehouseId
-          ? fallbackToWarehouseId
-          : prev.to_warehouse_id &&
-            siteWarehouses.some((w) => Number(w.id) === Number(prev.to_warehouse_id))
-          ? prev.to_warehouse_id
-          : fallbackToWarehouseId,
+          : fallbackFromId,
+      to_warehouse_id: fallbackToId,
     }));
 
     setFilters((prev) => ({
@@ -633,7 +638,7 @@ export default function KitchenIssues() {
     user,
     isRestrictedSiteUser,
     form.site_id,
-    hasLockedKitchenWarehouse,
+    hasLockedDestinationWarehouse,
     assignedWarehouseId,
   ]);
 
@@ -643,6 +648,16 @@ export default function KitchenIssues() {
 
   const fetchAvailableStock = async (productId) => {
     if (!productId || !form.from_warehouse_id || !effectiveFormSiteId) return;
+
+    setStockByProduct((prev) => ({
+      ...prev,
+      [String(productId)]: {
+        loaded: false,
+        loading: true,
+        available: 0,
+        on_hand: 0,
+      },
+    }));
 
     try {
       const res = await api.get("/stock-levels", {
@@ -655,30 +670,56 @@ export default function KitchenIssues() {
       });
 
       const rows = asArray(res.data);
-      const first = rows[0] || null;
+      const first =
+        rows.find((row) => Number(row.product_id) === Number(productId)) || null;
 
       setStockByProduct((prev) => ({
         ...prev,
         [String(productId)]: {
-          available: Number(first?.quantity_available ?? 0),
-          on_hand: Number(first?.quantity_on_hand ?? 0),
+          loaded: true,
+          loading: false,
+          available: Number(
+            first?.quantity_available ??
+              first?.closing_quantity ??
+              first?.quantity_on_hand ??
+              0
+          ),
+          on_hand: Number(first?.quantity_on_hand ?? first?.closing_quantity ?? 0),
         },
       }));
     } catch (err) {
       console.error(err);
+      setStockByProduct((prev) => ({
+        ...prev,
+        [String(productId)]: {
+          loaded: false,
+          loading: false,
+          available: 0,
+          on_hand: 0,
+        },
+      }));
     }
   };
 
-  useEffect(() => {
-    if (!form.from_warehouse_id || !effectiveFormSiteId) return;
-    const productIds = form.lines
-      .map((line) => line.product_id)
-      .filter(Boolean);
+  const getAvailableStockState = (productId) => {
+    return stockByProduct[String(productId)] || null;
+  };
 
-    [...new Set(productIds)].forEach((productId) => {
-      fetchAvailableStock(productId);
-    });
-  }, [form.from_warehouse_id, effectiveFormSiteId]); // eslint-disable-line
+  const getAvailableStock = (productId) => {
+    return Number(stockByProduct[String(productId)]?.available ?? 0);
+  };
+
+  const isLineOverStock = (line) => {
+    if (!line.product_id) return false;
+
+    const stockState = getAvailableStockState(line.product_id);
+    if (!stockState || stockState.loading || !stockState.loaded) return false;
+
+    const requestedQty = computeRequestedQuantity(line);
+    const available = getAvailableStock(line.product_id);
+
+    return requestedQty > 0 && requestedQty > available;
+  };
 
   const resetForm = () => {
     const preferredSite =
@@ -692,12 +733,12 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
-    const lockedKitchenWarehouse = hasLockedKitchenWarehouse
+    const lockedDestination = hasLockedDestinationWarehouse
       ? siteWarehouses.find((w) => Number(w.id) === Number(assignedWarehouseId))
       : null;
 
-    const toWarehouseId = lockedKitchenWarehouse?.id
-      ? String(lockedKitchenWarehouse.id)
+    const toWarehouseId = lockedDestination?.id
+      ? String(lockedDestination.id)
       : siteWarehouses[1]?.id
       ? String(siteWarehouses[1].id)
       : siteWarehouses[0]?.id
@@ -707,11 +748,10 @@ export default function KitchenIssues() {
     const fromWarehouseId =
       siteWarehouses.find((w) => String(w.id) !== String(toWarehouseId))?.id
         ? String(siteWarehouses.find((w) => String(w.id) !== String(toWarehouseId)).id)
-        : siteWarehouses[0]?.id
-        ? String(siteWarehouses[0].id)
         : "";
 
     setEditingId(null);
+    setProductSearchIndex(null);
     setForm({
       site_id: isRestrictedSiteUser ? restrictedSiteId : siteIdToUse,
       from_warehouse_id: fromWarehouseId,
@@ -720,8 +760,7 @@ export default function KitchenIssues() {
       lines: [emptyLine()],
     });
     setStockByProduct({});
-    setShowCreatePanel(true);
-    setMobileDrawerOpen(false);
+    setDrawerOpen(false);
   };
 
   const startEdit = (issue) => {
@@ -757,29 +796,78 @@ export default function KitchenIssues() {
           ? issue.lines.map((line) => buildLineFromExisting(line))
           : [emptyLine()],
     });
-    setShowCreatePanel(true);
+
+    (issue.lines ?? []).forEach((line) => {
+      if (line.product_id) {
+        fetchAvailableStock(line.product_id);
+      }
+    });
+
     window.scrollTo({ top: 0, behavior: "smooth" });
+    setDrawerOpen(true);
   };
 
-  const handleProductChange = (index, productId) => {
-    const product = getProductById(productId);
+  const selectProductForLine = (index, product) => {
     const preferredUnitId = getPreferredEntryUnitId(product);
 
     setForm((prev) => {
       const lines = [...prev.lines];
       lines[index] = {
         ...lines[index],
-        product_id: productId,
+        product_id: String(product.id),
+        search_text: product.name || "",
         display_unit_id: preferredUnitId,
-        display_quantity: "",
+        display_quantity: lines[index].display_quantity || "",
+        requested_quantity: "",
+      };
+
+      const requestedQty = computeRequestedQuantity(lines[index]);
+      lines[index].requested_quantity =
+        Number(lines[index].display_quantity || 0) > 0 && requestedQty > 0
+          ? String(requestedQty)
+          : "";
+
+      return { ...prev, lines };
+    });
+
+    fetchAvailableStock(product.id);
+    setProductSearchIndex(null);
+  };
+
+  const handleProductSearchChange = (index, value) => {
+    setForm((prev) => {
+      const lines = [...prev.lines];
+      lines[index] = {
+        ...lines[index],
+        search_text: value,
+        product_id: "",
+        display_unit_id: "",
         requested_quantity: "",
       };
       return { ...prev, lines };
     });
+    setProductSearchIndex(index);
+  };
 
-    if (productId) {
-      fetchAvailableStock(productId);
-    }
+  const getLineSuggestions = (line) => {
+    const query = String(line.search_text || "").trim().toLowerCase();
+    if (!query) return [];
+
+    return (products ?? [])
+      .filter((product) => {
+        const haystack = [
+          product.name,
+          product.code,
+          product.short_name,
+          product.category?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return haystack.includes(query);
+      })
+      .slice(0, 8);
   };
 
   const addProductToCart = (product) => {
@@ -796,6 +884,7 @@ export default function KitchenIssues() {
         const nextQty = currentQty + 1;
         lines[existingIndex] = {
           ...lines[existingIndex],
+          search_text: product.name || "",
           display_unit_id: lines[existingIndex].display_unit_id || preferredUnitId,
           display_quantity: numberToInput(nextQty, 8),
         };
@@ -807,6 +896,7 @@ export default function KitchenIssues() {
 
       const newLine = {
         product_id: String(product.id),
+        search_text: product.name || "",
         display_unit_id: preferredUnitId,
         display_quantity: "1",
         requested_quantity: "",
@@ -817,7 +907,7 @@ export default function KitchenIssues() {
       newLine.requested_quantity = requestedQty > 0 ? String(requestedQty) : "";
 
       const cleaned =
-        prev.lines.length === 1 && !prev.lines[0].product_id
+        prev.lines.length === 1 && !prev.lines[0].product_id && !prev.lines[0].search_text
           ? []
           : prev.lines;
 
@@ -828,19 +918,15 @@ export default function KitchenIssues() {
     });
 
     fetchAvailableStock(product.id);
-    if (isMobile) {
-      setMobileDrawerOpen(true);
-    }
+    setDrawerOpen(true);
   };
 
   const handleDisplayQuantityChange = (index, value) => {
     setForm((prev) => {
       const lines = [...prev.lines];
       const line = { ...lines[index], display_quantity: value };
-
       const requestedQty = computeRequestedQuantity(line);
       line.requested_quantity = value && requestedQty > 0 ? String(requestedQty) : "";
-
       lines[index] = line;
       return { ...prev, lines };
     });
@@ -929,9 +1015,7 @@ export default function KitchenIssues() {
       ...prev,
       lines: [...prev.lines, emptyLine()],
     }));
-    if (isMobile) {
-      setMobileDrawerOpen(true);
-    }
+    setDrawerOpen(true);
   };
 
   const removeLine = (index) => {
@@ -957,16 +1041,18 @@ export default function KitchenIssues() {
     return getUnitLabel(stockUnit);
   };
 
-  const getAvailableStock = (productId) => {
-    return Number(stockByProduct[String(productId)]?.available ?? 0);
-  };
+  const cartCount = useMemo(() => {
+    return form.lines.filter((line) => line.product_id || line.search_text).length;
+  }, [form.lines]);
 
-  const isLineOverStock = (line) => {
-    if (!line.product_id) return false;
-    const requestedQty = computeRequestedQuantity(line);
-    const available = getAvailableStock(line.product_id);
-    return requestedQty > 0 && requestedQty > available;
-  };
+  const totalEstimated = useMemo(() => {
+    return form.lines.reduce((sum, line) => {
+      const product = getLineProduct(line);
+      const price = Number(product?.last_purchase_price ?? 0);
+      const requestedQty = computeRequestedQuantity(line);
+      return sum + requestedQty * price;
+    }, 0);
+  }, [form.lines, products, unitsById]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1047,9 +1133,7 @@ export default function KitchenIssues() {
       await loadIssues();
 
       const newId = res.data?.data?.id;
-      if (newId) {
-        setSelectedId(newId);
-      }
+      if (newId) setSelectedId(newId);
     } catch (err) {
       console.error(err);
 
@@ -1089,12 +1173,8 @@ export default function KitchenIssues() {
       const res = await api.delete(`/kitchen-issues/${issue.id}`);
       toast.success(res.data?.message || "BSC supprimé.");
 
-      if (Number(selectedId) === Number(issue.id)) {
-        setSelectedId(null);
-      }
-      if (Number(editingId) === Number(issue.id)) {
-        resetForm();
-      }
+      if (Number(selectedId) === Number(issue.id)) setSelectedId(null);
+      if (Number(editingId) === Number(issue.id)) resetForm();
 
       await loadIssues();
     } catch (err) {
@@ -1105,23 +1185,57 @@ export default function KitchenIssues() {
     }
   };
 
-  const cartCount = useMemo(() => {
-    return form.lines.filter((line) => line.product_id).length;
-  }, [form.lines]);
+  const renderDrawerContent = () => (
+    <form onSubmit={submit} className="space-y-4">
+      <div className="rounded-2xl border bg-slate-50 p-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <div className="text-xs text-slate-500">Site</div>
+            <div className="font-semibold text-slate-800">
+              {visibleSites.find((site) => Number(site.id) === Number(form.site_id))
+                ?.name || "-"}
+            </div>
+          </div>
 
-  const renderCartContent = () => (
-    <div className="space-y-4">
+          <div>
+            <div className="text-xs text-slate-500">Dépôt source</div>
+            <select
+              className="mt-1 w-full rounded-xl border p-3"
+              value={form.from_warehouse_id}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  from_warehouse_id: e.target.value,
+                }))
+              }
+            >
+              <option value="">Choisir dépôt source</option>
+              {sourceWarehouseOptions.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs text-slate-500">Dépôt destination</div>
+            <div className="mt-1 rounded-xl border bg-white px-3 py-3 font-semibold text-slate-800">
+              {destinationWarehouse?.name || "-"}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-slate-100 p-3">
           <div className="text-sm text-slate-500">Lignes</div>
           <div className="text-xl font-bold text-slate-800">{cartCount}</div>
         </div>
         <div className="rounded-xl bg-slate-100 p-3">
-          <div className="text-sm text-slate-500">Dépôt source</div>
+          <div className="text-sm text-slate-500">Estimation</div>
           <div className="text-sm font-bold text-slate-800">
-            {currentSiteWarehouses.find(
-              (w) => Number(w.id) === Number(form.from_warehouse_id)
-            )?.name || "-"}
+            {formatMoney(totalEstimated)} Ar
           </div>
         </div>
       </div>
@@ -1133,6 +1247,7 @@ export default function KitchenIssues() {
           const stockUnit = getLineStockUnit(line);
           const entryUnitOptions = getLineEntryUnitOptions(line);
           const computedRequestedQty = computeRequestedQuantity(line);
+          const stockState = getAvailableStockState(line.product_id);
           const availableStock = getAvailableStock(line.product_id);
           const overStock = isLineOverStock(line);
 
@@ -1141,29 +1256,47 @@ export default function KitchenIssues() {
               ? convertQuantity(availableStock, stockUnit.id, entryUnit.id)
               : availableStock;
 
+          const suggestions = getLineSuggestions(line);
+
           return (
             <div
               key={index}
               className={`rounded-2xl border p-4 ${
-                overStock
-                  ? "border-red-300 bg-red-50"
-                  : "border-slate-200 bg-white"
+                overStock ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"
               }`}
             >
               <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <select
+                <div className="relative min-w-0 flex-1">
+                  <input
                     className="w-full rounded-xl border p-3"
-                    value={line.product_id}
-                    onChange={(e) => handleProductChange(index, e.target.value)}
-                  >
-                    <option value="">Produit</option>
-                    {(products ?? []).map((productItem) => (
-                      <option key={productItem.id} value={productItem.id}>
-                        {productItem.name}
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="Rechercher un produit..."
+                    value={line.search_text || ""}
+                    onChange={(e) => handleProductSearchChange(index, e.target.value)}
+                    onFocus={() => setProductSearchIndex(index)}
+                  />
+
+                  {productSearchIndex === index &&
+                    line.search_text &&
+                    !product &&
+                    suggestions.length > 0 && (
+                      <div className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border bg-white shadow-xl">
+                        {suggestions.map((suggestion) => (
+                          <button
+                            key={suggestion.id}
+                            type="button"
+                            onClick={() => selectProductForLine(index, suggestion)}
+                            className="block w-full border-b px-3 py-3 text-left hover:bg-slate-50"
+                          >
+                            <div className="font-semibold text-slate-800">
+                              {suggestion.name}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {suggestion.code || "-"}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                 </div>
 
                 <button
@@ -1175,6 +1308,12 @@ export default function KitchenIssues() {
                   X
                 </button>
               </div>
+
+              {product && (
+                <div className="mb-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  {product.name}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <select
@@ -1199,6 +1338,7 @@ export default function KitchenIssues() {
                   >
                     -
                   </button>
+
                   <input
                     type="number"
                     step="0.000001"
@@ -1207,6 +1347,7 @@ export default function KitchenIssues() {
                     value={line.display_quantity}
                     onChange={(e) => handleDisplayQuantityChange(index, e.target.value)}
                   />
+
                   <button
                     type="button"
                     onClick={() => adjustLineQuantity(index, 1)}
@@ -1229,6 +1370,7 @@ export default function KitchenIssues() {
                   <div>
                     Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
                   </div>
+
                   <div className="mt-1">
                     Équiv. stock :{" "}
                     <strong>
@@ -1238,6 +1380,7 @@ export default function KitchenIssues() {
                       {getUnitLabel(stockUnit) || "-"}
                     </strong>
                   </div>
+
                   <div className="mt-1 text-slate-500">
                     Conversion :{" "}
                     {entryUnit && stockUnit
@@ -1247,18 +1390,25 @@ export default function KitchenIssues() {
                         )} ${getUnitLabel(stockUnit)}`
                       : "-"}
                   </div>
+
                   <div className="mt-1">
                     Stock disponible :{" "}
-                    <strong className={overStock ? "text-red-700" : "text-emerald-700"}>
-                      {formatPreciseQty(availableStock, 5)} {getUnitLabel(stockUnit) || "-"}
-                    </strong>
+                    {stockState?.loading ? (
+                      <strong className="text-slate-500">chargement...</strong>
+                    ) : (
+                      <strong className={overStock ? "text-red-700" : "text-emerald-700"}>
+                        {formatPreciseQty(availableStock, 5)} {getUnitLabel(stockUnit) || "-"}
+                      </strong>
+                    )}
                   </div>
-                  {entryUnit && (
+
+                  {entryUnit && !stockState?.loading && (
                     <div className="mt-1 text-slate-500">
                       Soit env. {formatPreciseQty(availableInEntryUnit, 5)}{" "}
                       {getUnitLabel(entryUnit)}
                     </div>
                   )}
+
                   {overStock && (
                     <div className="mt-2 rounded-lg bg-red-100 px-2 py-2 text-red-700">
                       La quantité demandée dépasse le stock disponible.
@@ -1317,11 +1467,8 @@ export default function KitchenIssues() {
           </button>
         )}
       </div>
-    </div>
+    </form>
   );
-
-  const shouldHideFormOnMobile =
-    isMobile && selectedIssue && !showCreatePanel && !isEditing;
 
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
@@ -1329,224 +1476,168 @@ export default function KitchenIssues() {
 
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-      {!shouldHideFormOnMobile && (
-        <div className="xl:col-span-6">
-          <div className="rounded-2xl bg-white p-6 shadow">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h1 className="text-3xl font-bold text-slate-800">
-                  {isEditing ? "Modifier le BSC" : "Bon de Sortie Cuisine"}
-                </h1>
-                <p className="mt-1 text-sm text-slate-500">
-                  Demande de sortie interne du dépôt principal vers le dépôt cuisine.
+      <div className="xl:col-span-6">
+        <div className="rounded-2xl bg-white p-6 shadow">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-800">
+                {isEditing ? "Modifier le BSC" : "Bon de Sortie Cuisine"}
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Demande de sortie interne du dépôt principal vers le dépôt cuisine.
+              </p>
+              {isRestrictedSiteUser && (
+                <p className="mt-1 text-xs text-slate-400">
+                  Affichage limité au site d’affectation.
                 </p>
-                {isRestrictedSiteUser && (
-                  <p className="mt-1 text-xs text-slate-400">
-                    Affichage limité au site d’affectation.
-                  </p>
-                )}
-              </div>
-
-              {isMobile && (
-                <button
-                  type="button"
-                  onClick={() => setMobileDrawerOpen(true)}
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-white xl:hidden"
-                >
-                  Voir la demande ({cartCount})
-                </button>
               )}
             </div>
+          </div>
 
-            <form onSubmit={submit} className="space-y-4">
-              {!hasLockedKitchenWarehouse ? (
-                <>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <select
-                      className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
-                      value={form.site_id}
-                      disabled={isRestrictedSiteUser}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          site_id: e.target.value,
-                          from_warehouse_id: "",
-                          to_warehouse_id: "",
-                        }))
-                      }
-                    >
-                      <option value="">Choisir un site</option>
-                      {visibleSites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      className="rounded-xl border p-3"
-                      value={form.from_warehouse_id}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          from_warehouse_id: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Dépôt source</option>
-                      {currentSiteWarehouses.map((warehouse) => (
-                        <option key={warehouse.id} value={warehouse.id}>
-                          {warehouse.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-4">
-                    <select
-                      className="rounded-xl border p-3"
-                      value={form.to_warehouse_id}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          to_warehouse_id: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">Dépôt cuisine</option>
-                      {currentSiteWarehouses.map((warehouse) => (
-                        <option key={warehouse.id} value={warehouse.id}>
-                          {warehouse.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-2xl border bg-slate-50 p-4">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                    <div>
-                      <div className="text-xs text-slate-500">Site</div>
-                      <div className="font-semibold text-slate-800">
-                        {visibleSites.find((site) => Number(site.id) === Number(form.site_id))
-                          ?.name || "-"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-500">Dépôt source</div>
-                      <div className="font-semibold text-slate-800">
-                        {currentSiteWarehouses.find(
-                          (warehouse) =>
-                            Number(warehouse.id) === Number(form.from_warehouse_id)
-                        )?.name || "-"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-slate-500">Dépôt cuisine</div>
-                      <div className="font-semibold text-slate-800">
-                        {currentSiteWarehouses.find(
-                          (warehouse) =>
-                            Number(warehouse.id) === Number(form.to_warehouse_id)
-                        )?.name || "-"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                <div className="xl:col-span-5">
-                  <div className="rounded-2xl border p-4">
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h2 className="text-lg font-bold text-slate-800">Catégories</h2>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedCategory("");
-                          setCatalogSearch("");
-                        }}
-                        className="rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700"
-                      >
-                        Reset
-                      </button>
-                    </div>
-
-                    <div className="flex gap-2 overflow-x-auto pb-2 xl:block xl:space-y-2 xl:overflow-visible">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCategory("")}
-                        className={`shrink-0 rounded-xl px-3 py-2 text-left ${
-                          selectedCategory === ""
-                            ? "bg-slate-900 text-white"
-                            : "bg-slate-100 text-slate-800"
-                        }`}
-                      >
-                        Toutes
-                      </button>
-
-                      {categoryOptions.map((category) => (
-                        <button
-                          key={category.id || category.name}
-                          type="button"
-                          onClick={() => setSelectedCategory(String(category.id))}
-                          className={`shrink-0 rounded-xl px-3 py-2 text-left ${
-                            String(selectedCategory) === String(category.id)
-                              ? "bg-slate-900 text-white"
-                              : "bg-slate-100 text-slate-800"
-                          }`}
-                        >
-                          {category.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="xl:col-span-7">
-                  <div className="rounded-2xl border p-4">
-                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <h2 className="text-lg font-bold text-slate-800">Articles</h2>
-                      <input
-                        className="rounded-xl border p-3"
-                        placeholder="Rechercher un produit..."
-                        value={catalogSearch}
-                        onChange={(e) => setCatalogSearch(e.target.value)}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      {catalogProducts.map((product) => (
-                        <button
-                          key={product.id}
-                          type="button"
-                          onClick={() => addProductToCart(product)}
-                          className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
-                        >
-                          <div className="font-semibold text-slate-800">{product.name}</div>
-                          <div className="text-sm text-slate-500">{product.code || "-"}</div>
-                          <div className="mt-2 text-xs text-slate-400">
-                            {product.category?.name || "Sans catégorie"}
-                          </div>
-                        </button>
-                      ))}
-
-                      {catalogProducts.length === 0 && (
-                        <div className="rounded-xl bg-slate-50 p-4 text-slate-500 md:col-span-2">
-                          Aucun produit trouvé.
-                        </div>
-                      )}
-                    </div>
-                  </div>
+          <div className="mb-4 rounded-2xl border bg-slate-50 p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
+                <div className="text-xs text-slate-500">Site</div>
+                <div className="font-semibold text-slate-800">
+                  {visibleSites.find((site) => Number(site.id) === Number(form.site_id))
+                    ?.name || "-"}
                 </div>
               </div>
 
-              <div className="hidden xl:block">{renderCartContent()}</div>
-            </form>
+              <div>
+                <div className="text-xs text-slate-500">Dépôt source</div>
+                <select
+                  className="mt-1 w-full rounded-xl border p-3"
+                  value={form.from_warehouse_id}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      from_warehouse_id: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Choisir dépôt source</option>
+                  {sourceWarehouseOptions.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="text-xs text-slate-500">Dépôt destination</div>
+                <div className="mt-1 rounded-xl border bg-white px-3 py-3 font-semibold text-slate-800">
+                  {destinationWarehouse?.name || "-"}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+            <div className="xl:col-span-4">
+              <div className="rounded-2xl border p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h2 className="text-lg font-bold text-slate-800">Catégories</h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategory("");
+                      setCatalogSearch("");
+                    }}
+                    className="rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-2 xl:block xl:space-y-2 xl:overflow-visible">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory("")}
+                    className={`shrink-0 rounded-xl px-3 py-2 text-left ${
+                      selectedCategory === ""
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    Toutes
+                  </button>
+
+                  {categoryOptions.map((category) => (
+                    <button
+                      key={category.id || category.name}
+                      type="button"
+                      onClick={() => setSelectedCategory(String(category.id))}
+                      className={`shrink-0 rounded-xl px-3 py-2 text-left ${
+                        String(selectedCategory) === String(category.id)
+                          ? "bg-slate-900 text-white"
+                          : "bg-slate-100 text-slate-800"
+                      }`}
+                    >
+                      {category.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="xl:col-span-8">
+              <div className="rounded-2xl border p-4">
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h2 className="text-lg font-bold text-slate-800">Articles</h2>
+
+                  <input
+                    className="rounded-xl border p-3"
+                    placeholder="Rechercher un produit..."
+                    value={catalogSearch}
+                    onChange={(e) => setCatalogSearch(e.target.value)}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  {visibleCatalogProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => addProductToCart(product)}
+                      className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
+                    >
+                      <div className="font-semibold text-slate-800">{product.name}</div>
+                      <div className="text-sm text-slate-500">{product.code || "-"}</div>
+                      <div className="mt-2 text-xs text-slate-400">
+                        {product.category?.name || "Sans catégorie"}
+                      </div>
+                    </button>
+                  ))}
+
+                  {visibleCatalogProducts.length === 0 && (
+                    <div className="rounded-xl bg-slate-50 p-4 text-slate-500 md:col-span-2">
+                      Aucun produit trouvé.
+                    </div>
+                  )}
+                </div>
+
+                {catalogProducts.length > 8 && (
+                  <div className="mt-3 text-xs text-slate-500">
+                    Affichage limité aux 8 premiers produits. Affinez la recherche pour voir les autres.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
-      )}
 
-      <div className={shouldHideFormOnMobile ? "xl:col-span-12" : "xl:col-span-6"}>
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          className="fixed bottom-5 right-5 z-40 rounded-full bg-slate-900 px-5 py-4 text-sm font-semibold text-white shadow-2xl"
+        >
+          Voir le panier ({cartCount})
+        </button>
+      </div>
+
+      <div className="xl:col-span-6">
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
@@ -1556,27 +1647,12 @@ export default function KitchenIssues() {
               </p>
             </div>
 
-<div className="flex gap-2">
-              {isMobile && selectedIssue && !showCreatePanel && !isEditing && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreatePanel(true);
-                    setSelectedId(null);
-                  }}
-                  className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
-                >
-                  Nouvelle demande
-                </button>
-              )}
-
-              <button
-                onClick={loadIssues}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white"
-              >
-                Rafraîchir
-              </button>
-            </div>
+            <button
+              onClick={loadIssues}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-white"
+            >
+              Rafraîchir
+            </button>
           </div>
 
           <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1640,12 +1716,7 @@ export default function KitchenIssues() {
                   return (
                     <div
                       key={issue.id}
-                      onClick={() => {
-                        setSelectedId(issue.id);
-                        if (isMobile) {
-                          setShowCreatePanel(false);
-                        }
-                      }}
+                      onClick={() => setSelectedId(issue.id)}
                       className={`cursor-pointer rounded-xl border p-4 transition ${
                         Number(selectedId) === Number(issue.id)
                           ? "border-blue-500 bg-blue-50"
@@ -1728,7 +1799,9 @@ export default function KitchenIssues() {
                             e.stopPropagation();
                             deleteIssue(issue);
                           }}
-                          disabled={deletingId === issue.id || issue.status !== "pending"}
+                          disabled={
+                            deletingId === issue.id || issue.status !== "pending"
+                          }
                           className="rounded-xl bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-40"
                         >
                           {deletingId === issue.id ? "Suppression..." : "Supprimer"}
@@ -1840,50 +1913,6 @@ export default function KitchenIssues() {
                       </div>
                     )}
 
-                    {selectedIssue.qr_image_url && (
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="mb-3 text-sm font-semibold text-slate-700">
-                          QR BSC
-                        </div>
-
-                        <div className="flex flex-col gap-4 md:flex-row md:items-start">
-                          <img
-                            src={selectedIssue.qr_image_url}
-                            alt="QR BSC"
-                            className="h-40 w-40 rounded-xl border bg-white p-2"
-                          />
-
-                          <div className="space-y-3">
-                            <div className="text-sm break-all text-slate-600">
-                              {buildScanUrl(selectedIssue)}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  window.open(buildPrintUrl(selectedIssue), "_blank")
-                                }
-                                className="rounded-xl bg-slate-900 px-4 py-2 text-white"
-                              >
-                                Imprimer ticket
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  window.open(buildScanUrl(selectedIssue), "_blank")
-                                }
-                                className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
-                              >
-                                Ouvrir scan
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     <div>
                       <h4 className="mb-3 text-lg font-semibold text-slate-800">
                         Lignes du BSC
@@ -1910,9 +1939,7 @@ export default function KitchenIssues() {
                                   key={line.id}
                                   className="border-b border-slate-100 hover:bg-slate-50"
                                 >
-                                  <td className="px-4 py-3">
-                                    {line.product?.name || "-"}
-                                  </td>
+                                  <td className="px-4 py-3">{line.product?.name || "-"}</td>
                                   <td className="px-4 py-3">
                                     {formatQty(line.requested_quantity)} {unitLabel}
                                   </td>
@@ -1990,6 +2017,50 @@ export default function KitchenIssues() {
                         ))}
                       </div>
                     </div>
+
+                    {selectedIssue.qr_image_url && (
+                      <div className="rounded-xl bg-slate-50 p-4">
+                        <div className="mb-3 text-sm font-semibold text-slate-700">
+                          QR BSC
+                        </div>
+
+                        <div className="flex flex-col gap-4 md:flex-row md:items-start">
+                          <img
+                            src={selectedIssue.qr_image_url}
+                            alt="QR BSC"
+                            className="h-40 w-40 rounded-xl border bg-white p-2"
+                          />
+
+                          <div className="space-y-3">
+                            <div className="text-sm break-all text-slate-600">
+                              {buildScanUrl(selectedIssue)}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  window.open(buildPrintUrl(selectedIssue), "_blank")
+                                }
+                                className="rounded-xl bg-slate-900 px-4 py-2 text-white"
+                              >
+                                Imprimer ticket
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  window.open(buildScanUrl(selectedIssue), "_blank")
+                                }
+                                className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
+                              >
+                                Ouvrir scan
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1999,11 +2070,14 @@ export default function KitchenIssues() {
       </div>
 
       <Drawer
-        open={mobileDrawerOpen}
-        onClose={() => setMobileDrawerOpen(false)}
-        title={`Demande BSC (${cartCount})`}
+        open={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setProductSearchIndex(null);
+        }}
+        title={`Panier BSC (${cartCount})`}
       >
-        {renderCartContent()}
+        {renderDrawerContent()}
       </Drawer>
     </div>
   );
