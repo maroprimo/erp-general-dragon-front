@@ -3,6 +3,7 @@ import { Html5QrcodeScanner } from "html5-qrcode";
 import api from "../services/api";
 import toast from "react-hot-toast";
 import { formatDateTime, formatQty, formatMoney } from "../utils/formatters";
+import { useAuth } from "../context/AuthContext";
 
 function extractToken(value) {
   if (!value) return "";
@@ -51,6 +52,8 @@ function workflowBadgeClass(status) {
 }
 
 export default function KitchenIssueScanMobile() {
+  const { user } = useAuth();
+
   const [scanToken, setScanToken] = useState("");
   const [document, setDocument] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -541,7 +544,7 @@ export default function KitchenIssueScanMobile() {
                 </button>
               )}
 
-              {canReceiveInKitchen && (
+              {canReceiveInKitchen && user?.role === "cuisine" && (
                 <button
                   onClick={() =>
                     submitMultipart(
@@ -559,11 +562,12 @@ export default function KitchenIssueScanMobile() {
               )}
             </div>
 
-            {!canIssueFromStore && !canReceiveInKitchen && (
-              <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
-                Aucune action disponible pour ce BSC à son état actuel.
-              </div>
-            )}
+            {!canIssueFromStore &&
+              !(canReceiveInKitchen && user?.role === "cuisine") && (
+                <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+                  Aucune action disponible pour ce BSC à son état actuel.
+                </div>
+              )}
           </div>
 
           <div className="rounded-2xl bg-white p-5 shadow">
