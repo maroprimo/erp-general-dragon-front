@@ -11,7 +11,36 @@ function asArray(payload) {
   return [];
 }
 
-function QuickProductModal({ open, onClose, categories, units, onCreated }) {
+function useIsMobile(breakpoint = 1023) {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth <= breakpoint;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const media = window.matchMedia(`(max-width: ${breakpoint}px)`);
+
+    const handleChange = (event) => {
+      setIsMobile(event.matches);
+    };
+
+    setIsMobile(media.matches);
+
+    if (media.addEventListener) {
+      media.addEventListener("change", handleChange);
+      return () => media.removeEventListener("change", handleChange);
+    }
+
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
+function QuickProductModal({ open, onClose, categories, units, onCreated, isMobile }) {
   const [form, setForm] = useState({
     code: "",
     name: "",
@@ -36,6 +65,17 @@ function QuickProductModal({ open, onClose, categories, units, onCreated }) {
         is_active: true,
       });
     }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
   }, [open]);
 
   if (!open) return null;
@@ -64,109 +104,324 @@ function QuickProductModal({ open, onClose, categories, units, onCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-2xl">
-        <h2 className="mb-4 text-2xl font-bold text-slate-800">Nouveau produit</h2>
-
-        <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <input
-            className="rounded-xl border p-3"
-            placeholder="Code produit"
-            value={form.code}
-            onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
-          />
-
-          <input
-            className="rounded-xl border p-3"
-            placeholder="Nom produit"
-            value={form.name}
-            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-          />
-
-          <select
-            className="rounded-xl border p-3"
-            value={form.category_id}
-            onChange={(e) => setForm((p) => ({ ...p, category_id: e.target.value }))}
-          >
-            <option value="">Catégorie</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
-
-          <input
-            className="rounded-xl border p-3"
-            placeholder="Type produit"
-            value={form.product_type}
-            onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
-          />
-
-          <select
-            className="rounded-xl border p-3"
-            value={form.purchase_unit_id}
-            onChange={(e) => setForm((p) => ({ ...p, purchase_unit_id: e.target.value }))}
-          >
-            <option value="">Unité achat</option>
-            {units.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {unit.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="rounded-xl border p-3"
-            value={form.stock_unit_id}
-            onChange={(e) => setForm((p) => ({ ...p, stock_unit_id: e.target.value }))}
-          >
-            <option value="">Unité stock</option>
-            {units.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {unit.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="rounded-xl border p-3"
-            value={form.sale_unit_id}
-            onChange={(e) => setForm((p) => ({ ...p, sale_unit_id: e.target.value }))}
-          >
-            <option value="">Unité vente</option>
-            {units.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {unit.name}
-              </option>
-            ))}
-          </select>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.is_active}
-              onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))}
-            />
-            Produit actif
-          </label>
-
-          <div className="md:col-span-2 flex justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl bg-slate-300 px-4 py-2 text-slate-800"
-            >
-              Annuler
-            </button>
-            <button
-              type="submit"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-white"
-            >
-              Enregistrer
-            </button>
+    <div className="fixed inset-0 z-[70] bg-black/50">
+      <div
+        className={`${
+          isMobile
+            ? "absolute inset-0 h-full w-full rounded-none bg-white"
+            : "mx-auto mt-8 w-full max-w-3xl rounded-2xl bg-white shadow-2xl"
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 md:text-2xl">Nouveau produit</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Création rapide sans quitter l’écran d’achat
+            </p>
           </div>
-        </form>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-xl font-bold text-slate-700"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className={`${isMobile ? "h-[calc(100%-80px)] overflow-y-auto" : ""}`}>
+          <form onSubmit={submit} className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-6">
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Code produit"
+              value={form.code}
+              onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Nom produit"
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            />
+
+            <select
+              className="rounded-xl border p-3"
+              value={form.category_id}
+              onChange={(e) => setForm((p) => ({ ...p, category_id: e.target.value }))}
+            >
+              <option value="">Catégorie</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Type produit"
+              value={form.product_type}
+              onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
+            />
+
+            <select
+              className="rounded-xl border p-3"
+              value={form.purchase_unit_id}
+              onChange={(e) => setForm((p) => ({ ...p, purchase_unit_id: e.target.value }))}
+            >
+              <option value="">Unité achat</option>
+              {units.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border p-3"
+              value={form.stock_unit_id}
+              onChange={(e) => setForm((p) => ({ ...p, stock_unit_id: e.target.value }))}
+            >
+              <option value="">Unité stock</option>
+              {units.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border p-3"
+              value={form.sale_unit_id}
+              onChange={(e) => setForm((p) => ({ ...p, sale_unit_id: e.target.value }))}
+            >
+              <option value="">Unité vente</option>
+              {units.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.name}
+                </option>
+              ))}
+            </select>
+
+            <label className="flex min-h-[48px] items-center gap-3 rounded-xl border p-3">
+              <input
+                type="checkbox"
+                checked={form.is_active}
+                onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))}
+              />
+              <span className="text-sm font-medium text-slate-700">Produit actif</span>
+            </label>
+
+            <div className="flex flex-col gap-3 pt-2 md:col-span-2 md:flex-row md:justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                className="rounded-xl bg-slate-900 px-4 py-3 text-white"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QtyControl({ value, onChange }) {
+  const numericValue = Number(value || 0);
+
+  const decrement = () => {
+    const next = Math.max(numericValue - 1, 0);
+    onChange(next);
+  };
+
+  const increment = () => {
+    const next = numericValue + 1;
+    onChange(next);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={decrement}
+        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-slate-50 text-lg font-bold text-slate-700"
+      >
+        −
+      </button>
+
+      <input
+        type="number"
+        step="0.001"
+        className="h-11 min-w-0 flex-1 rounded-xl border p-2 text-center"
+        placeholder="Qté"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+
+      <button
+        type="button"
+        onClick={increment}
+        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-300 bg-slate-50 text-lg font-bold text-slate-700"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+function CartPanel({
+  cart,
+  header,
+  totalAmount,
+  submitting,
+  updateCartLine,
+  removeCartLine,
+  submitDocument,
+  isMobile = false,
+  onClose,
+}) {
+  return (
+    <div className={`flex h-full flex-col ${isMobile ? "bg-white" : ""}`}>
+      <div className={`flex items-center justify-between ${isMobile ? "border-b border-slate-200 p-4" : ""}`}>
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">Panier achat</h2>
+          <p className="text-sm text-slate-500">
+            {cart.length} ligne(s) •{" "}
+            {header.document_mode === "bc"
+              ? "BC"
+              : header.document_mode === "br_direct"
+              ? "BR"
+              : "FACT"}
+          </p>
+        </div>
+
+        {isMobile && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-xl text-slate-700"
+          >
+            ×
+          </button>
+        )}
+      </div>
+
+      <div className={`${isMobile ? "p-4" : ""}`}>
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-slate-100 p-3">
+            <div className="text-sm text-slate-500">Lignes</div>
+            <div className="text-xl font-bold text-slate-800">{cart.length}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-100 p-3">
+            <div className="text-sm text-slate-500">Mode</div>
+            <div className="text-xl font-bold text-slate-800">
+              {header.document_mode === "bc"
+                ? "BC"
+                : header.document_mode === "br_direct"
+                ? "BR"
+                : "FACT"}
+            </div>
+          </div>
+        </div>
+
+        <div className={`space-y-3 ${isMobile ? "max-h-[48vh] overflow-y-auto" : "max-h-[50vh] overflow-y-auto pr-1"}`}>
+          {cart.length === 0 && (
+            <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+              Aucun article dans le panier.
+            </div>
+          )}
+
+          {cart.map((line) => (
+            <div
+              key={line.product_id}
+              className="rounded-xl border border-slate-200 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-semibold text-slate-800">{line.name}</div>
+                  <div className="text-xs text-slate-500">{line.code}</div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Dernier achat : {formatMoney(Number(line.last_purchase_price ?? 0))} Ar
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {line.last_supplier_name ?? ""}
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => removeCartLine(line.product_id)}
+                  className="shrink-0 rounded-lg bg-red-600 px-3 py-2 text-sm text-white"
+                >
+                  Retirer
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <QtyControl
+                  value={line.quantity}
+                  onChange={(value) => updateCartLine(line.product_id, "quantity", value)}
+                />
+
+                <input
+                  type="number"
+                  step="0.01"
+                  className="h-11 rounded-xl border p-3"
+                  placeholder="Prix unitaire"
+                  value={line.unit_price}
+                  onChange={(e) =>
+                    updateCartLine(line.product_id, "unit_price", e.target.value)
+                  }
+                />
+              </div>
+
+              {Number(line.unit_price || 0) !== Number(line.last_purchase_price || 0) && (
+                <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
+                  Prix différent du dernier achat
+                </div>
+              )}
+
+              <div className="mt-3 flex items-center justify-between">
+                <div className="font-bold text-slate-800">
+                  {formatMoney(
+                    Number(line.quantity || 0) * Number(line.unit_price || 0)
+                  )}{" "}
+                  Ar
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 rounded-xl bg-slate-100 p-4">
+          <div className="text-sm text-slate-500">Montant total</div>
+          <div className="text-2xl font-bold text-slate-800">
+            {formatMoney(totalAmount)} Ar
+          </div>
+        </div>
+
+        <button
+          onClick={submitDocument}
+          disabled={submitting}
+          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-60"
+        >
+          {submitting
+            ? "Enregistrement..."
+            : header.document_mode === "bc"
+            ? "Valider le bon de commande"
+            : header.document_mode === "br_direct"
+            ? "Valider le bon de réception"
+            : "Valider la facture"}
+        </button>
       </div>
     </div>
   );
@@ -175,6 +430,8 @@ function QuickProductModal({ open, onClose, categories, units, onCreated }) {
 export default function PurchasePOS() {
   const { user } = useAuth();
   const isStockSiteUser = user?.role === "stock";
+  const isMobile = useIsMobile();
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
 
   const [categories, setCategories] = useState([]);
   const [products, setProducts] = useState([]);
@@ -339,6 +596,17 @@ export default function PurchasePOS() {
     }
   }, [header.site_id, header.warehouse_id, siteWarehouses, currentSite, user]);
 
+  useEffect(() => {
+    if ((!cartDrawerOpen && !modalOpen) || typeof document === "undefined") return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [cartDrawerOpen, modalOpen]);
+
   const addToCart = (product) => {
     const exists = cart.find((line) => line.product_id === product.id);
 
@@ -364,6 +632,10 @@ export default function PurchasePOS() {
           last_supplier_name: product.last_supplier_name ?? null,
         },
       ]);
+    }
+
+    if (isMobile) {
+      toast.success("Article ajouté au panier");
     }
   };
 
@@ -493,6 +765,7 @@ export default function PurchasePOS() {
       }
 
       resetDocumentFields();
+      setCartDrawerOpen(false);
     } catch (err) {
       console.error(err);
       toast.error(
@@ -508,12 +781,24 @@ export default function PurchasePOS() {
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Achat type POS</h1>
-        <p className="text-slate-500">
-          Création de BC, BR direct ou facture directe selon le workflow.
-        </p>
+    <div className="space-y-4 pb-24 lg:pb-6">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Achat type POS</h1>
+          <p className="text-slate-500">
+            Création de BC, BR direct ou facture directe selon le workflow.
+          </p>
+        </div>
+
+        {isMobile && (
+          <button
+            type="button"
+            onClick={() => setCartDrawerOpen(true)}
+            className="hidden md:hidden"
+          >
+            Panier
+          </button>
+        )}
       </div>
 
       <div className="rounded-2xl bg-white p-4 shadow">
@@ -636,39 +921,68 @@ export default function PurchasePOS() {
             <h2 className="text-lg font-bold text-slate-800">Catégories</h2>
           </div>
 
-          <div className="space-y-2">
-            <button
-              onClick={() => setSelectedCategory("")}
-              className={`w-full rounded-xl px-3 py-2 text-left ${
-                selectedCategory === ""
-                  ? "bg-slate-900 text-white"
-                  : "bg-slate-100 text-slate-800"
-              }`}
-            >
-              Toutes
-            </button>
-
-            {categories.map((category) => (
+          {isMobile ? (
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
               <button
-                key={category.id}
-                onClick={() => setSelectedCategory(String(category.id))}
-                className={`w-full rounded-xl px-3 py-2 text-left ${
-                  String(selectedCategory) === String(category.id)
+                onClick={() => setSelectedCategory("")}
+                className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
+                  selectedCategory === ""
                     ? "bg-slate-900 text-white"
                     : "bg-slate-100 text-slate-800"
                 }`}
               >
-                {category.name}
+                Toutes
               </button>
-            ))}
-          </div>
+
+              {categories.map((category) => (
+                <button
+                  key={category.id}
+                  onClick={() => setSelectedCategory(String(category.id))}
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium ${
+                    String(selectedCategory) === String(category.id)
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-800"
+                  }`}
+                >
+                  {category.name}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <button
+                onClick={() => setSelectedCategory("")}
+                className={`w-full rounded-xl px-3 py-2 text-left ${
+                  selectedCategory === ""
+                    ? "bg-slate-900 text-white"
+                    : "bg-slate-100 text-slate-800"
+                }`}
+              >
+                Toutes
+              </button>
+
+              {categories.map((category) => (
+                <button
+                  key={category.id}
+                  onClick={() => setSelectedCategory(String(category.id))}
+                  className={`w-full rounded-xl px-3 py-2 text-left ${
+                    String(selectedCategory) === String(category.id)
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-800"
+                  }`}
+                >
+                  {category.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="rounded-2xl bg-white p-4 shadow xl:col-span-6">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <h2 className="text-lg font-bold text-slate-800">Articles</h2>
 
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 className="rounded-xl border p-3"
                 placeholder="Rechercher..."
@@ -677,7 +991,7 @@ export default function PurchasePOS() {
               />
               <button
                 onClick={() => setModalOpen(true)}
-                className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
+                className="rounded-xl bg-emerald-700 px-4 py-3 text-white"
               >
                 Nouveau produit
               </button>
@@ -689,15 +1003,25 @@ export default function PurchasePOS() {
               Chargement des produits...
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {products.map((product) => (
                 <button
                   key={product.id}
                   onClick={() => addToCart(product)}
-                  className="rounded-2xl border border-slate-200 p-4 text-left hover:bg-slate-50"
+                  className="rounded-2xl border border-slate-200 p-3 text-left transition hover:bg-slate-50"
                 >
-                  <div className="font-semibold text-slate-800">{product.name}</div>
-                  <div className="text-sm text-slate-500">{product.code}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="line-clamp-2 font-semibold text-slate-800">
+                        {product.name}
+                      </div>
+                      <div className="text-sm text-slate-500">{product.code}</div>
+                    </div>
+
+                    <span className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                      Ajouter
+                    </span>
+                  </div>
 
                   <div className="mt-2 text-xs text-slate-400">
                     {product.category?.name ?? "Sans catégorie"}
@@ -725,127 +1049,72 @@ export default function PurchasePOS() {
           )}
         </div>
 
-        <div className="rounded-2xl bg-white p-4 shadow xl:col-span-4">
-          <h2 className="mb-4 text-lg font-bold text-slate-800">Panier achat</h2>
-
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <div className="rounded-xl bg-slate-100 p-3">
-              <div className="text-sm text-slate-500">Lignes</div>
-              <div className="text-xl font-bold text-slate-800">{cart.length}</div>
-            </div>
-
-            <div className="rounded-xl bg-slate-100 p-3">
-              <div className="text-sm text-slate-500">Mode</div>
-              <div className="text-xl font-bold text-slate-800">
-                {header.document_mode === "bc"
-                  ? "BC"
-                  : header.document_mode === "br_direct"
-                  ? "BR"
-                  : "FACT"}
-              </div>
-            </div>
+        {!isMobile && (
+          <div className="rounded-2xl bg-white p-4 shadow xl:col-span-4">
+            <CartPanel
+              cart={cart}
+              header={header}
+              totalAmount={totalAmount}
+              submitting={submitting}
+              updateCartLine={updateCartLine}
+              removeCartLine={removeCartLine}
+              submitDocument={submitDocument}
+            />
           </div>
-
-          <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
-            {cart.length === 0 && (
-              <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
-                Aucun article dans le panier.
-              </div>
-            )}
-
-            {cart.map((line) => (
-              <div
-                key={line.product_id}
-                className="rounded-xl border border-slate-200 p-3"
-              >
-                <div className="font-semibold text-slate-800">{line.name}</div>
-                <div className="text-xs text-slate-500">{line.code}</div>
-
-                <div className="mt-1 text-xs text-slate-500">
-                  Dernier achat : {formatMoney(Number(line.last_purchase_price ?? 0))} Ar
-                </div>
-
-                <div className="text-xs text-slate-400">
-                  {line.last_supplier_name ?? ""}
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <input
-                    type="number"
-                    step="0.001"
-                    className="rounded border p-2"
-                    placeholder="Qté"
-                    value={line.quantity}
-                    onChange={(e) =>
-                      updateCartLine(line.product_id, "quantity", e.target.value)
-                    }
-                  />
-
-                  <input
-                    type="number"
-                    step="0.01"
-                    className="rounded border p-2"
-                    placeholder="PU"
-                    value={line.unit_price}
-                    onChange={(e) =>
-                      updateCartLine(line.product_id, "unit_price", e.target.value)
-                    }
-                  />
-                </div>
-
-                {Number(line.unit_price || 0) !== Number(line.last_purchase_price || 0) && (
-                  <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
-                    Prix différent du dernier achat
-                  </div>
-                )}
-
-                <div className="mt-2 flex items-center justify-between">
-                  <div className="font-bold text-slate-800">
-                    {formatMoney(
-                      Number(line.quantity || 0) * Number(line.unit_price || 0)
-                    )}{" "}
-                    Ar
-                  </div>
-
-                  <button
-                    onClick={() => removeCartLine(line.product_id)}
-                    className="rounded-lg bg-red-600 px-3 py-1 text-white"
-                  >
-                    Retirer
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 rounded-xl bg-slate-100 p-4">
-            <div className="text-sm text-slate-500">Montant total</div>
-            <div className="text-2xl font-bold text-slate-800">
-              {formatMoney(totalAmount)} Ar
-            </div>
-          </div>
-
-          <button
-            onClick={submitDocument}
-            disabled={submitting}
-            className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-60"
-          >
-            {submitting
-              ? "Enregistrement..."
-              : header.document_mode === "bc"
-              ? "Valider le bon de commande"
-              : header.document_mode === "br_direct"
-              ? "Valider le bon de réception"
-              : "Valider la facture"}
-          </button>
-        </div>
+        )}
       </div>
+
+      {isMobile && (
+        <>
+          <button
+            type="button"
+            onClick={() => setCartDrawerOpen(true)}
+            className="fixed bottom-4 left-4 right-4 z-40 rounded-2xl bg-slate-900 px-4 py-4 text-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-left">
+                <div className="text-sm text-slate-300">Voir le panier</div>
+                <div className="font-bold">
+                  {cart.length} article(s)
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-sm text-slate-300">Total</div>
+                <div className="font-bold">{formatMoney(totalAmount)} Ar</div>
+              </div>
+            </div>
+          </button>
+
+          {cartDrawerOpen && (
+            <div className="fixed inset-0 z-[60] bg-black/40">
+              <div className="absolute inset-x-0 bottom-0 h-[88vh] rounded-t-3xl bg-white shadow-2xl">
+                <div className="mx-auto mt-3 h-1.5 w-16 rounded-full bg-slate-300" />
+                <div className="h-[calc(88vh-20px)] overflow-y-auto">
+                  <CartPanel
+                    cart={cart}
+                    header={header}
+                    totalAmount={totalAmount}
+                    submitting={submitting}
+                    updateCartLine={updateCartLine}
+                    removeCartLine={removeCartLine}
+                    submitDocument={submitDocument}
+                    isMobile
+                    onClose={() => setCartDrawerOpen(false)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       <QuickProductModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         categories={categories}
         units={units}
+        isMobile={isMobile}
         onCreated={(product) => {
           loadProducts(selectedCategory, search);
           addToCart(product);
