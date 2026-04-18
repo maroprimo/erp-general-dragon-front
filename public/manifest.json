@@ -1,0 +1,15 @@
+{
+  "short_name": "Dragon Royal",
+  "name": "Dragon Royal ERP",
+  "icons": [
+    {
+      "src": "https://stock.dragonroyalmg.com/dragon-roayl.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0f172a",
+  "background_color": "#ffffff"
+}
