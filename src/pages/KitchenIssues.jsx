@@ -493,7 +493,7 @@ export default function KitchenIssues() {
   }, [products, selectedCategory, catalogSearch]);
 
   const visibleCatalogProducts = useMemo(() => {
-    return catalogProducts.slice(0, 8);
+    return catalogProducts.slice(0, 12);
   }, [catalogProducts]);
 
   const visibleIssues = useMemo(() => {
