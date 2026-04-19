@@ -24,20 +24,17 @@ function numberToInput(value, precision = 8) {
   return num.toFixed(precision).replace(/\.?0+$/, "");
 }
 
-function formatPreciseQty(value, digits = 5) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return "-";
-
-  return num.toLocaleString("fr-FR", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+function getTodayYmd() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function emptyLine() {
   return {
     product_id: "",
-    search_text: "",
     display_quantity: "",
     display_unit_id: "",
     requested_quantity: "",
@@ -71,6 +68,16 @@ function statusBadgeClass(status) {
     default:
       return "bg-slate-100 text-slate-700";
   }
+}
+
+function formatPreciseQty(value, digits = 5) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "-";
+
+  return num.toLocaleString("fr-FR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
 function buildSpaPageUrl(page, extraParams = {}) {
@@ -130,35 +137,21 @@ function buildScanUrl(issue) {
   });
 }
 
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
-
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 1024);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  return isMobile;
-}
-
-function Drawer({ open, onClose, title, children }) {
-  if (!open) return null;
+function isStandaloneMode() {
+  if (typeof window === "undefined") return false;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40">
-      <div className="absolute inset-y-0 right-0 w-full max-w-xl bg-white shadow-2xl lg:max-w-2xl">
-        <div className="flex items-center justify-between border-b px-4 py-4">
-          <h3 className="text-lg font-bold text-slate-800">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700"
-          >
-            Fermer
-          </button>
-        </div>
-        <div className="h-[calc(100vh-73px)] overflow-y-auto p-4">{children}</div>
+    window.matchMedia?.("(display-mode: standalone)")?.matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function DetailStatCard({ label, value, children }) {
+  return (
+    <div className="rounded-xl bg-slate-50 p-4">
+      <div className="text-sm text-slate-500">{label}</div>
+      <div className="mt-1 font-semibold text-slate-800 break-words">
+        {children || value || "-"}
       </div>
     </div>
   );
@@ -166,7 +159,6 @@ function Drawer({ open, onClose, title, children }) {
 
 export default function KitchenIssues() {
   const { user } = useAuth();
-  const isMobile = useIsMobile();
 
   const {
     sites,
@@ -178,30 +170,15 @@ export default function KitchenIssues() {
 
   const [fullUnits, setFullUnits] = useState([]);
   const [issues, setIssues] = useState([]);
+  const [sourceStockRows, setSourceStockRows] = useState(new Map());
+
   const [loading, setLoading] = useState(true);
+  const [sourceStockLoading, setSourceStockLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
   const [selectedId, setSelectedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
-
-  const [catalogSearch, setCatalogSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [productSearchIndex, setProductSearchIndex] = useState(null);
-
-  const [stockByProduct, setStockByProduct] = useState({});
-
-  const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
-  const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
-
-  const assignedWarehouseId = user?.warehouse_id
-    ? String(user.warehouse_id)
-    : user?.warehouse?.id
-    ? String(user.warehouse.id)
-    : "";
-
-  const hasLockedDestinationWarehouse = Boolean(assignedWarehouseId);
 
   const [filters, setFilters] = useState({
     site_id: "",
@@ -217,7 +194,29 @@ export default function KitchenIssues() {
     lines: [emptyLine()],
   });
 
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [productSearch, setProductSearch] = useState("");
+  const [cartOpen, setCartOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
   const isEditing = editingId !== null;
+  const isRestrictedSiteUser = ["stock", "cuisine"].includes(user?.role);
+  const restrictedSiteId = user?.site_id ? String(user.site_id) : "";
+  const fixedDestinationWarehouseId = user?.warehouse_id ? String(user.warehouse_id) : "";
+  const hasFixedDestinationWarehouse = Boolean(fixedDestinationWarehouseId);
+
+  useEffect(() => {
+    const syncDisplay = () => {
+      setIsMobile(window.innerWidth < 1280);
+      setIsStandalone(isStandaloneMode());
+    };
+
+    syncDisplay();
+    window.addEventListener("resize", syncDisplay);
+    return () => window.removeEventListener("resize", syncDisplay);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -232,7 +231,9 @@ export default function KitchenIssues() {
         }
       } catch (err) {
         console.error("Erreur chargement complet des unités:", err);
-        if (mounted) setFullUnits([]);
+        if (mounted) {
+          setFullUnits([]);
+        }
       }
     };
 
@@ -242,6 +243,20 @@ export default function KitchenIssues() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (cartOpen || detailOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+
+    document.body.style.overflow = "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [cartOpen, detailOpen]);
 
   const effectiveUnits = useMemo(() => {
     return fullUnits.length > 0 ? fullUnits : hookUnits;
@@ -273,7 +288,9 @@ export default function KitchenIssues() {
     return map;
   }, [products]);
 
-  const getUnitModel = (unitId) => unitsById.get(Number(unitId)) || null;
+  const getUnitModel = (unitId) => {
+    return unitsById.get(Number(unitId)) || null;
+  };
 
   const getUnitLabel = (unit) => {
     if (!unit) return "";
@@ -301,13 +318,17 @@ export default function KitchenIssues() {
 
     for (const candidate of candidates) {
       const parsed = parseRatioValue(candidate);
-      if (parsed !== null && parsed > 0) return parsed;
+      if (parsed !== null && parsed > 0) {
+        return parsed;
+      }
     }
 
     return 1;
   };
 
-  const getProductById = (productId) => productsById.get(Number(productId)) || null;
+  const getProductById = (productId) => {
+    return productsById.get(Number(productId)) || null;
+  };
 
   const getProductUnitId = (product, type) => {
     if (!product) return "";
@@ -413,11 +434,11 @@ export default function KitchenIssues() {
 
     return {
       product_id: rawLine.product_id ? String(rawLine.product_id) : "",
-      search_text: product?.name || "",
       display_unit_id: preferredEntryUnitId || "",
       display_quantity: displayQuantity,
       requested_quantity:
-        rawLine.requested_quantity !== null && rawLine.requested_quantity !== undefined
+        rawLine.requested_quantity !== null &&
+        rawLine.requested_quantity !== undefined
           ? String(rawLine.requested_quantity)
           : "",
       notes: rawLine.notes || "",
@@ -435,66 +456,17 @@ export default function KitchenIssues() {
     form.site_id || (isRestrictedSiteUser ? restrictedSiteId : "");
 
   const currentSiteWarehouses = useMemo(() => {
-    if (!effectiveFormSiteId) return [];
+    if (!effectiveFormSiteId) return warehouses ?? [];
     return (warehouses ?? []).filter(
       (w) => Number(w.site_id) === Number(effectiveFormSiteId)
     );
   }, [warehouses, effectiveFormSiteId]);
 
-  const destinationWarehouse = useMemo(() => {
-    if (!form.to_warehouse_id) return null;
-    return currentSiteWarehouses.find(
-      (w) => Number(w.id) === Number(form.to_warehouse_id)
+  const destinationWarehouseObject = useMemo(() => {
+    return (warehouses ?? []).find(
+      (warehouse) => Number(warehouse.id) === Number(form.to_warehouse_id)
     );
-  }, [currentSiteWarehouses, form.to_warehouse_id]);
-
-  const sourceWarehouseOptions = useMemo(() => {
-    return currentSiteWarehouses.filter(
-      (w) => Number(w.id) !== Number(form.to_warehouse_id)
-    );
-  }, [currentSiteWarehouses, form.to_warehouse_id]);
-
-  const categoryOptions = useMemo(() => {
-    const map = new Map();
-
-    (products ?? []).forEach((product) => {
-      const id = String(product.category_id || product.category?.id || "");
-      const name = product.category?.name || product.category_name || "Sans catégorie";
-
-      if (!map.has(id)) {
-        map.set(id, { id, name });
-      }
-    });
-
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [products]);
-
-  const catalogProducts = useMemo(() => {
-    return (products ?? []).filter((product) => {
-      const categoryId = String(product.category_id || product.category?.id || "");
-      const matchesCategory = selectedCategory ? categoryId === selectedCategory : true;
-
-      const haystack = [
-        product.name,
-        product.code,
-        product.short_name,
-        product.category?.name,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch = catalogSearch
-        ? haystack.includes(catalogSearch.toLowerCase())
-        : true;
-
-      return matchesCategory && matchesSearch;
-    });
-  }, [products, selectedCategory, catalogSearch]);
-
-  const visibleCatalogProducts = useMemo(() => {
-    return catalogProducts.slice(0, 12);
-  }, [catalogProducts]);
+  }, [warehouses, form.to_warehouse_id]);
 
   const visibleIssues = useMemo(() => {
     if (!isRestrictedSiteUser || !restrictedSiteId) return issues;
@@ -543,6 +515,66 @@ export default function KitchenIssues() {
     });
   }, [visibleIssues, filters, isRestrictedSiteUser, restrictedSiteId]);
 
+  const categories = useMemo(() => {
+    const map = new Map();
+
+    (products || []).forEach((product) => {
+      const id =
+        product.category?.id ??
+        product.category_id ??
+        `cat-${product.category?.name || product.category_name || "autres"}`;
+
+      const name =
+        product.category?.name ||
+        product.category_name ||
+        "Sans catégorie";
+
+      if (!map.has(String(id))) {
+        map.set(String(id), {
+          id: String(id),
+          name,
+        });
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [products]);
+
+  const visibleProductCards = useMemo(() => {
+    let rows = [...(products || [])];
+
+    if (selectedCategory) {
+      rows = rows.filter((product) => {
+        const catId = String(product.category?.id ?? product.category_id ?? "");
+        const fallbackId = String(
+          `cat-${product.category?.name || product.category_name || "autres"}`
+        );
+        return catId === selectedCategory || fallbackId === selectedCategory;
+      });
+    }
+
+    if (productSearch.trim()) {
+      const q = productSearch.trim().toLowerCase();
+      rows = rows.filter((product) =>
+        [
+          product.name,
+          product.code,
+          product.short_name,
+          product.category?.name,
+          product.category_name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+
+    rows.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+    return rows.slice(0, 8);
+  }, [products, selectedCategory, productSearch]);
+
   const loadIssues = async () => {
     try {
       setLoading(true);
@@ -554,6 +586,39 @@ export default function KitchenIssues() {
       toast.error("Impossible de charger les BSC");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSourceStock = async () => {
+    if (!effectiveFormSiteId || !form.from_warehouse_id) {
+      setSourceStockRows(new Map());
+      return;
+    }
+
+    try {
+      setSourceStockLoading(true);
+
+      const res = await api.get("/stock-levels", {
+        params: {
+          site_id: effectiveFormSiteId,
+          warehouse_id: form.from_warehouse_id,
+          report_date: getTodayYmd(),
+        },
+      });
+
+      const rows = asArray(res.data);
+      const map = new Map();
+
+      rows.forEach((row) => {
+        map.set(Number(row.product_id), row);
+      });
+
+      setSourceStockRows(map);
+    } catch (err) {
+      console.error("Erreur chargement stock source:", err);
+      setSourceStockRows(new Map());
+    } finally {
+      setSourceStockLoading(false);
     }
   };
 
@@ -596,33 +661,32 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
-    const lockedDestination = hasLockedDestinationWarehouse
-      ? siteWarehouses.find((w) => Number(w.id) === Number(assignedWarehouseId))
-      : null;
-
-    const fallbackToId = lockedDestination?.id
-      ? String(lockedDestination.id)
-      : siteWarehouses[1]?.id
-      ? String(siteWarehouses[1].id)
-      : siteWarehouses[0]?.id
-      ? String(siteWarehouses[0].id)
-      : "";
-
-    const fallbackFromId =
-      siteWarehouses.find((w) => String(w.id) !== String(fallbackToId))?.id
-        ? String(siteWarehouses.find((w) => String(w.id) !== String(fallbackToId)).id)
-        : "";
+    const fixedDestinationIsValid =
+      fixedDestinationWarehouseId &&
+      siteWarehouses.some(
+        (w) => Number(w.id) === Number(fixedDestinationWarehouseId)
+      );
 
     setForm((prev) => ({
       ...prev,
       site_id: siteIdToUse,
       from_warehouse_id:
         prev.from_warehouse_id &&
-        siteWarehouses.some((w) => Number(w.id) === Number(prev.from_warehouse_id)) &&
-        String(prev.from_warehouse_id) !== String(fallbackToId)
+        siteWarehouses.some((w) => Number(w.id) === Number(prev.from_warehouse_id))
           ? prev.from_warehouse_id
-          : fallbackFromId,
-      to_warehouse_id: fallbackToId,
+          : siteWarehouses[0]?.id
+          ? String(siteWarehouses[0].id)
+          : "",
+      to_warehouse_id: fixedDestinationIsValid
+        ? fixedDestinationWarehouseId
+        : prev.to_warehouse_id &&
+          siteWarehouses.some((w) => Number(w.id) === Number(prev.to_warehouse_id))
+        ? prev.to_warehouse_id
+        : siteWarehouses[1]?.id
+        ? String(siteWarehouses[1].id)
+        : siteWarehouses[0]?.id
+        ? String(siteWarehouses[0].id)
+        : "",
     }));
 
     setFilters((prev) => ({
@@ -638,88 +702,62 @@ export default function KitchenIssues() {
     user,
     isRestrictedSiteUser,
     form.site_id,
-    hasLockedDestinationWarehouse,
-    assignedWarehouseId,
+    fixedDestinationWarehouseId,
   ]);
 
   useEffect(() => {
-    setStockByProduct({});
-  }, [form.from_warehouse_id, form.site_id]);
+    if (!effectiveFormSiteId) return;
 
-  const fetchAvailableStock = async (productId) => {
-    if (!productId || !form.from_warehouse_id || !effectiveFormSiteId) return;
+    const sameSiteWarehouses = (warehouses ?? []).filter(
+      (w) => Number(w.site_id) === Number(effectiveFormSiteId)
+    );
 
-    setStockByProduct((prev) => ({
+    const fromValid = sameSiteWarehouses.some(
+      (w) => Number(w.id) === Number(form.from_warehouse_id)
+    );
+
+    const fixedDestinationIsValid =
+      fixedDestinationWarehouseId &&
+      sameSiteWarehouses.some(
+        (w) => Number(w.id) === Number(fixedDestinationWarehouseId)
+      );
+
+    const toValid = sameSiteWarehouses.some(
+      (w) => Number(w.id) === Number(form.to_warehouse_id)
+    );
+
+    setForm((prev) => ({
       ...prev,
-      [String(productId)]: {
-        loaded: false,
-        loading: true,
-        available: 0,
-        on_hand: 0,
-      },
+      site_id: isRestrictedSiteUser ? restrictedSiteId : prev.site_id,
+      from_warehouse_id: fromValid
+        ? prev.from_warehouse_id
+        : sameSiteWarehouses[0]?.id
+        ? String(sameSiteWarehouses[0].id)
+        : "",
+      to_warehouse_id: fixedDestinationIsValid
+        ? fixedDestinationWarehouseId
+        : toValid
+        ? prev.to_warehouse_id
+        : sameSiteWarehouses[1]?.id
+        ? String(sameSiteWarehouses[1].id)
+        : sameSiteWarehouses[0]?.id
+        ? String(sameSiteWarehouses[0].id)
+        : "",
     }));
+  }, [
+    effectiveFormSiteId,
+    warehouses,
+    form.from_warehouse_id,
+    form.to_warehouse_id,
+    isRestrictedSiteUser,
+    restrictedSiteId,
+    fixedDestinationWarehouseId,
+  ]);
 
-    try {
-      const res = await api.get("/stock-levels", {
-        params: {
-          site_id: effectiveFormSiteId,
-          warehouse_id: form.from_warehouse_id,
-          product_id: productId,
-          report_date: new Date().toISOString().slice(0, 10),
-        },
-      });
-
-      const rows = asArray(res.data);
-      const first =
-        rows.find((row) => Number(row.product_id) === Number(productId)) || null;
-
-      setStockByProduct((prev) => ({
-        ...prev,
-        [String(productId)]: {
-          loaded: true,
-          loading: false,
-          available: Number(
-            first?.quantity_available ??
-              first?.closing_quantity ??
-              first?.quantity_on_hand ??
-              0
-          ),
-          on_hand: Number(first?.quantity_on_hand ?? first?.closing_quantity ?? 0),
-        },
-      }));
-    } catch (err) {
-      console.error(err);
-      setStockByProduct((prev) => ({
-        ...prev,
-        [String(productId)]: {
-          loaded: false,
-          loading: false,
-          available: 0,
-          on_hand: 0,
-        },
-      }));
-    }
-  };
-
-  const getAvailableStockState = (productId) => {
-    return stockByProduct[String(productId)] || null;
-  };
-
-  const getAvailableStock = (productId) => {
-    return Number(stockByProduct[String(productId)]?.available ?? 0);
-  };
-
-  const isLineOverStock = (line) => {
-    if (!line.product_id) return false;
-
-    const stockState = getAvailableStockState(line.product_id);
-    if (!stockState || stockState.loading || !stockState.loaded) return false;
-
-    const requestedQty = computeRequestedQuantity(line);
-    const available = getAvailableStock(line.product_id);
-
-    return requestedQty > 0 && requestedQty > available;
-  };
+  useEffect(() => {
+    loadSourceStock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveFormSiteId, form.from_warehouse_id]);
 
   const resetForm = () => {
     const preferredSite =
@@ -733,34 +771,29 @@ export default function KitchenIssues() {
       (w) => Number(w.site_id) === Number(siteIdToUse)
     );
 
-    const lockedDestination = hasLockedDestinationWarehouse
-      ? siteWarehouses.find((w) => Number(w.id) === Number(assignedWarehouseId))
-      : null;
-
-    const toWarehouseId = lockedDestination?.id
-      ? String(lockedDestination.id)
-      : siteWarehouses[1]?.id
-      ? String(siteWarehouses[1].id)
-      : siteWarehouses[0]?.id
-      ? String(siteWarehouses[0].id)
-      : "";
-
-    const fromWarehouseId =
-      siteWarehouses.find((w) => String(w.id) !== String(toWarehouseId))?.id
-        ? String(siteWarehouses.find((w) => String(w.id) !== String(toWarehouseId)).id)
-        : "";
+    const fixedDestinationIsValid =
+      fixedDestinationWarehouseId &&
+      siteWarehouses.some(
+        (w) => Number(w.id) === Number(fixedDestinationWarehouseId)
+      );
 
     setEditingId(null);
-    setProductSearchIndex(null);
     setForm({
       site_id: isRestrictedSiteUser ? restrictedSiteId : siteIdToUse,
-      from_warehouse_id: fromWarehouseId,
-      to_warehouse_id: toWarehouseId,
+      from_warehouse_id: siteWarehouses[0]?.id ? String(siteWarehouses[0].id) : "",
+      to_warehouse_id: fixedDestinationIsValid
+        ? fixedDestinationWarehouseId
+        : siteWarehouses[1]?.id
+        ? String(siteWarehouses[1].id)
+        : siteWarehouses[0]?.id
+        ? String(siteWarehouses[0].id)
+        : "",
       notes: "",
       lines: [emptyLine()],
     });
-    setStockByProduct({});
-    setDrawerOpen(false);
+    setSelectedCategory("");
+    setProductSearch("");
+    setCartOpen(false);
   };
 
   const startEdit = (issue) => {
@@ -780,6 +813,9 @@ export default function KitchenIssues() {
 
     setEditingId(issue.id);
     setSelectedId(issue.id);
+    setDetailOpen(false);
+    setCartOpen(true);
+
     setForm({
       site_id: isRestrictedSiteUser
         ? restrictedSiteId
@@ -789,7 +825,11 @@ export default function KitchenIssues() {
       from_warehouse_id: issue.from_warehouse_id
         ? String(issue.from_warehouse_id)
         : "",
-      to_warehouse_id: issue.to_warehouse_id ? String(issue.to_warehouse_id) : "",
+      to_warehouse_id: hasFixedDestinationWarehouse
+        ? fixedDestinationWarehouseId
+        : issue.to_warehouse_id
+        ? String(issue.to_warehouse_id)
+        : "",
       notes: issue.notes || "",
       lines:
         (issue.lines ?? []).length > 0
@@ -797,82 +837,10 @@ export default function KitchenIssues() {
           : [emptyLine()],
     });
 
-    (issue.lines ?? []).forEach((line) => {
-      if (line.product_id) {
-        fetchAvailableStock(line.product_id);
-      }
-    });
-
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setDrawerOpen(true);
-  };
-
-  const selectProductForLine = (index, product) => {
-    const preferredUnitId = getPreferredEntryUnitId(product);
-
-    setForm((prev) => {
-      const lines = [...prev.lines];
-      lines[index] = {
-        ...lines[index],
-        product_id: String(product.id),
-        search_text: product.name || "",
-        display_unit_id: preferredUnitId,
-        display_quantity: lines[index].display_quantity || "",
-        requested_quantity: "",
-      };
-
-      const requestedQty = computeRequestedQuantity(lines[index]);
-      lines[index].requested_quantity =
-        Number(lines[index].display_quantity || 0) > 0 && requestedQty > 0
-          ? String(requestedQty)
-          : "";
-
-      return { ...prev, lines };
-    });
-
-    fetchAvailableStock(product.id);
-    setProductSearchIndex(null);
-  };
-
-  const handleProductSearchChange = (index, value) => {
-    setForm((prev) => {
-      const lines = [...prev.lines];
-      lines[index] = {
-        ...lines[index],
-        search_text: value,
-        product_id: "",
-        display_unit_id: "",
-        requested_quantity: "",
-      };
-      return { ...prev, lines };
-    });
-    setProductSearchIndex(index);
-  };
-
-  const getLineSuggestions = (line) => {
-    const query = String(line.search_text || "").trim().toLowerCase();
-    if (!query) return [];
-
-    return (products ?? [])
-      .filter((product) => {
-        const haystack = [
-          product.name,
-          product.code,
-          product.short_name,
-          product.category?.name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-
-        return haystack.includes(query);
-      })
-      .slice(0, 8);
   };
 
   const addProductToCart = (product) => {
-    const preferredUnitId = getPreferredEntryUnitId(product);
-
     setForm((prev) => {
       const existingIndex = prev.lines.findIndex(
         (line) => Number(line.product_id) === Number(product.id)
@@ -880,53 +848,58 @@ export default function KitchenIssues() {
 
       if (existingIndex >= 0) {
         const lines = [...prev.lines];
-        const currentQty = Number(lines[existingIndex].display_quantity || 0);
-        const nextQty = currentQty + 1;
-        lines[existingIndex] = {
-          ...lines[existingIndex],
-          search_text: product.name || "",
-          display_unit_id: lines[existingIndex].display_unit_id || preferredUnitId,
-          display_quantity: numberToInput(nextQty, 8),
+        const currentLine = lines[existingIndex];
+        const currentDisplayQty = Number(currentLine.display_quantity || 0);
+        const nextLine = {
+          ...currentLine,
+          display_quantity: numberToInput((currentDisplayQty || 0) + 1, 8),
         };
-        const requestedQty = computeRequestedQuantity(lines[existingIndex]);
-        lines[existingIndex].requested_quantity =
+        const requestedQty = computeRequestedQuantity(nextLine);
+        nextLine.requested_quantity =
           requestedQty > 0 ? String(requestedQty) : "";
+
+        lines[existingIndex] = nextLine;
         return { ...prev, lines };
       }
 
-      const newLine = {
+      const preferredUnitId = getPreferredEntryUnitId(product);
+      const nextLine = {
         product_id: String(product.id),
-        search_text: product.name || "",
         display_unit_id: preferredUnitId,
         display_quantity: "1",
         requested_quantity: "",
         notes: "",
       };
 
-      const requestedQty = computeRequestedQuantity(newLine);
-      newLine.requested_quantity = requestedQty > 0 ? String(requestedQty) : "";
+      const requestedQty = computeRequestedQuantity(nextLine);
+      nextLine.requested_quantity =
+        requestedQty > 0 ? String(requestedQty) : "";
 
-      const cleaned =
-        prev.lines.length === 1 && !prev.lines[0].product_id && !prev.lines[0].search_text
+      const sanitizedLines =
+        prev.lines.length === 1 &&
+        !prev.lines[0].product_id &&
+        !prev.lines[0].display_quantity &&
+        !prev.lines[0].notes
           ? []
           : prev.lines;
 
       return {
         ...prev,
-        lines: [...cleaned, newLine],
+        lines: [...sanitizedLines, nextLine],
       };
     });
 
-    fetchAvailableStock(product.id);
-    setDrawerOpen(true);
+    setCartOpen(true);
   };
 
   const handleDisplayQuantityChange = (index, value) => {
     setForm((prev) => {
       const lines = [...prev.lines];
       const line = { ...lines[index], display_quantity: value };
+
       const requestedQty = computeRequestedQuantity(line);
       line.requested_quantity = value && requestedQty > 0 ? String(requestedQty) : "";
+
       lines[index] = line;
       return { ...prev, lines };
     });
@@ -991,68 +964,36 @@ export default function KitchenIssues() {
     });
   };
 
-  const adjustLineQuantity = (index, delta) => {
-    setForm((prev) => {
-      const lines = [...prev.lines];
-      const current = Number(lines[index].display_quantity || 0);
-      const next = Math.max(0, current + delta);
-
-      lines[index] = {
-        ...lines[index],
-        display_quantity: next > 0 ? numberToInput(next, 8) : "",
-      };
-
-      const requestedQty = computeRequestedQuantity(lines[index]);
-      lines[index].requested_quantity =
-        next > 0 && requestedQty > 0 ? String(requestedQty) : "";
-
-      return { ...prev, lines };
-    });
-  };
-
   const addLine = () => {
-    setForm((prev) => ({
-      ...prev,
-      lines: [...prev.lines, emptyLine()],
-    }));
-    setDrawerOpen(true);
+    setCartOpen(true);
   };
 
   const removeLine = (index) => {
     setForm((prev) => ({
       ...prev,
-      lines:
-        prev.lines.filter((_, i) => i !== index).length > 0
-          ? prev.lines.filter((_, i) => i !== index)
-          : [emptyLine()],
+      lines: prev.lines.filter((_, i) => i !== index).length
+        ? prev.lines.filter((_, i) => i !== index)
+        : [emptyLine()],
     }));
   };
 
-  const getLineEntryUnitOptions = (line) => {
-    const product = getLineProduct(line);
-    return getProductEntryUnitIds(product)
-      .map((unitId) => getUnitModel(unitId))
-      .filter(Boolean);
+  const decrementLine = (index) => {
+    const line = form.lines[index];
+    const qty = Number(line?.display_quantity || 0);
+
+    if (qty <= 1) {
+      removeLine(index);
+      return;
+    }
+
+    handleDisplayQuantityChange(index, String(qty - 1));
   };
 
-  const getIssueLineUnitLabel = (line) => {
-    const product = line?.product || getProductById(line?.product_id);
-    const stockUnit = getUnitModel(getProductStockUnitId(product));
-    return getUnitLabel(stockUnit);
+  const incrementLine = (index) => {
+    const line = form.lines[index];
+    const qty = Number(line?.display_quantity || 0);
+    handleDisplayQuantityChange(index, String((qty || 0) + 1));
   };
-
-  const cartCount = useMemo(() => {
-    return form.lines.filter((line) => line.product_id || line.search_text).length;
-  }, [form.lines]);
-
-  const totalEstimated = useMemo(() => {
-    return form.lines.reduce((sum, line) => {
-      const product = getLineProduct(line);
-      const price = Number(product?.last_purchase_price ?? 0);
-      const requestedQty = computeRequestedQuantity(line);
-      return sum + requestedQty * price;
-    }, 0);
-  }, [form.lines, products, unitsById]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1064,18 +1005,6 @@ export default function KitchenIssues() {
 
     if (Number(form.from_warehouse_id) === Number(form.to_warehouse_id)) {
       toast.error("Le dépôt source doit être différent du dépôt cuisine.");
-      return;
-    }
-
-    const invalidStockLine = form.lines.find(
-      (line) =>
-        line.product_id &&
-        Number(line.display_quantity || 0) > 0 &&
-        isLineOverStock(line)
-    );
-
-    if (invalidStockLine) {
-      toast.error("Une ligne dépasse le stock disponible du dépôt source.");
       return;
     }
 
@@ -1133,7 +1062,9 @@ export default function KitchenIssues() {
       await loadIssues();
 
       const newId = res.data?.data?.id;
-      if (newId) setSelectedId(newId);
+      if (newId) {
+        setSelectedId(newId);
+      }
     } catch (err) {
       console.error(err);
 
@@ -1173,10 +1104,15 @@ export default function KitchenIssues() {
       const res = await api.delete(`/kitchen-issues/${issue.id}`);
       toast.success(res.data?.message || "BSC supprimé.");
 
-      if (Number(selectedId) === Number(issue.id)) setSelectedId(null);
-      if (Number(editingId) === Number(issue.id)) resetForm();
+      if (Number(selectedId) === Number(issue.id)) {
+        setSelectedId(null);
+      }
+      if (Number(editingId) === Number(issue.id)) {
+        resetForm();
+      }
 
       await loadIssues();
+      setDetailOpen(false);
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur suppression BSC");
@@ -1185,289 +1121,287 @@ export default function KitchenIssues() {
     }
   };
 
-  const renderDrawerContent = () => (
-    <form onSubmit={submit} className="space-y-4">
-      <div className="rounded-2xl border bg-slate-50 p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div>
-            <div className="text-xs text-slate-500">Site</div>
-            <div className="font-semibold text-slate-800">
-              {visibleSites.find((site) => Number(site.id) === Number(form.site_id))
-                ?.name || "-"}
+  const totalEstimated = useMemo(() => {
+    return form.lines.reduce((sum, line) => {
+      const product = getLineProduct(line);
+      const price = Number(product?.last_purchase_price ?? 0);
+      const requestedQty = computeRequestedQuantity(line);
+      return sum + requestedQty * price;
+    }, 0);
+  }, [form.lines, products, unitsById]);
+
+  const getLineEntryUnitOptions = (line) => {
+    const product = getLineProduct(line);
+    return getProductEntryUnitIds(product)
+      .map((unitId) => getUnitModel(unitId))
+      .filter(Boolean);
+  };
+
+  const getIssueLineUnitLabel = (line) => {
+    const product = line?.product || getProductById(line?.product_id);
+    const stockUnit = getUnitModel(getProductStockUnitId(product));
+    return getUnitLabel(stockUnit);
+  };
+
+  const getStockRowForProduct = (productId) => {
+    return sourceStockRows.get(Number(productId)) || null;
+  };
+
+  const getKnownAvailableQty = (productId) => {
+    const row = getStockRowForProduct(productId);
+    if (!row) return null;
+    return Number(row.quantity_available ?? 0);
+  };
+
+  const cartLineCount = form.lines.filter((line) => line.product_id).length;
+
+  const renderDetailContent = () => (
+    <>
+      {!selectedIssue ? (
+        <div className="text-slate-400">Sélectionnez un BSC.</div>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-2xl font-bold text-slate-800">
+                {selectedIssue.issue_number}
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Site : {selectedIssue.site?.name || "-"}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded-lg px-2 py-1 text-xs font-semibold ${statusBadgeClass(
+                  selectedIssue.status
+                )}`}
+              >
+                {selectedIssue.status}
+              </span>
+
+              <span
+                className={`rounded-lg px-2 py-1 text-xs font-semibold ${workflowBadgeClass(
+                  selectedIssue.workflow_status
+                )}`}
+              >
+                {selectedIssue.workflow_status}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setDetailOpen(false)}
+                className="rounded-xl bg-slate-200 px-3 py-2 text-sm text-slate-700"
+              >
+                Fermer
+              </button>
             </div>
           </div>
 
-          <div>
-            <div className="text-xs text-slate-500">Dépôt source</div>
-            <select
-              className="mt-1 w-full rounded-xl border p-3"
-              value={form.from_warehouse_id}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  from_warehouse_id: e.target.value,
-                }))
-              }
-            >
-              <option value="">Choisir dépôt source</option>
-              {sourceWarehouseOptions.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <DetailStatCard label="Dépôt source">
+              {getFromWarehouse(selectedIssue)?.name || "-"}
+            </DetailStatCard>
 
-          <div>
-            <div className="text-xs text-slate-500">Dépôt destination</div>
-            <div className="mt-1 rounded-xl border bg-white px-3 py-3 font-semibold text-slate-800">
-              {destinationWarehouse?.name || "-"}
-            </div>
-          </div>
-        </div>
-      </div>
+            <DetailStatCard label="Dépôt cuisine">
+              {getToWarehouse(selectedIssue)?.name || "-"}
+            </DetailStatCard>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-slate-100 p-3">
-          <div className="text-sm text-slate-500">Lignes</div>
-          <div className="text-xl font-bold text-slate-800">{cartCount}</div>
-        </div>
-        <div className="rounded-xl bg-slate-100 p-3">
-          <div className="text-sm text-slate-500">Estimation</div>
-          <div className="text-sm font-bold text-slate-800">
-            {formatMoney(totalEstimated)} Ar
-          </div>
-        </div>
-      </div>
+            <DetailStatCard label="Demandé par">
+              {getRequestedBy(selectedIssue)?.name ||
+                getRequestedBy(selectedIssue)?.email ||
+                "-"}
+            </DetailStatCard>
 
-      <div className="space-y-3">
-        {form.lines.map((line, index) => {
-          const product = getLineProduct(line);
-          const entryUnit = getLineEntryUnit(line);
-          const stockUnit = getLineStockUnit(line);
-          const entryUnitOptions = getLineEntryUnitOptions(line);
-          const computedRequestedQty = computeRequestedQuantity(line);
-          const stockState = getAvailableStockState(line.product_id);
-          const availableStock = getAvailableStock(line.product_id);
-          const overStock = isLineOverStock(line);
+            <DetailStatCard label="Date demande">
+              {formatDateTime(selectedIssue.requested_at || selectedIssue.created_at)}
+            </DetailStatCard>
 
-          const availableInEntryUnit =
-            entryUnit && stockUnit
-              ? convertQuantity(availableStock, stockUnit.id, entryUnit.id)
-              : availableStock;
-
-          const suggestions = getLineSuggestions(line);
-
-          return (
-            <div
-              key={index}
-              className={`rounded-2xl border p-4 ${
-                overStock ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"
-              }`}
-            >
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div className="relative min-w-0 flex-1">
-                  <input
-                    className="w-full rounded-xl border p-3"
-                    placeholder="Rechercher un produit..."
-                    value={line.search_text || ""}
-                    onChange={(e) => handleProductSearchChange(index, e.target.value)}
-                    onFocus={() => setProductSearchIndex(index)}
-                  />
-
-                  {productSearchIndex === index &&
-                    line.search_text &&
-                    !product &&
-                    suggestions.length > 0 && (
-                      <div className="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border bg-white shadow-xl">
-                        {suggestions.map((suggestion) => (
-                          <button
-                            key={suggestion.id}
-                            type="button"
-                            onClick={() => selectProductForLine(index, suggestion)}
-                            className="block w-full border-b px-3 py-3 text-left hover:bg-slate-50"
-                          >
-                            <div className="font-semibold text-slate-800">
-                              {suggestion.name}
-                            </div>
-                            <div className="text-xs text-slate-500">
-                              {suggestion.code || "-"}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+            <DetailStatCard label="Sorti du dépôt">
+              <>
+                <div>{formatDateTime(selectedIssue.issued_at)}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {getIssuedBy(selectedIssue)?.name ||
+                    getIssuedBy(selectedIssue)?.email ||
+                    "-"}
                 </div>
+              </>
+            </DetailStatCard>
 
-                <button
-                  type="button"
-                  onClick={() => removeLine(index)}
-                  disabled={form.lines.length === 1}
-                  className="rounded-xl bg-red-600 px-3 py-3 text-white disabled:opacity-50"
-                >
-                  X
-                </button>
+            <DetailStatCard label="Reçu en cuisine">
+              <>
+                <div>{formatDateTime(selectedIssue.received_at)}</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {getReceivedBy(selectedIssue)?.name ||
+                    getReceivedBy(selectedIssue)?.email ||
+                    "-"}
+                </div>
+              </>
+            </DetailStatCard>
+          </div>
+
+          {selectedIssue.notes && (
+            <div className="rounded-xl bg-slate-50 p-4">
+              <div className="text-sm text-slate-500">Notes</div>
+              <div className="font-semibold text-slate-800">
+                {selectedIssue.notes}
+              </div>
+            </div>
+          )}
+
+          {selectedIssue.qr_image_url && (
+            <div className="rounded-xl bg-slate-50 p-4">
+              <div className="mb-3 text-sm font-semibold text-slate-700">
+                QR BSC
               </div>
 
-              {product && (
-                <div className="mb-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  {product.name}
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <select
-                  className="w-full rounded-xl border p-3"
-                  value={line.display_unit_id || ""}
-                  onChange={(e) => handleDisplayUnitChange(index, e.target.value)}
-                  disabled={!product || entryUnitOptions.length <= 1}
-                >
-                  <option value="">Unité</option>
-                  {entryUnitOptions.map((unit) => (
-                    <option key={unit.id} value={unit.id}>
-                      {getUnitLabel(unit)}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => adjustLineQuantity(index, -1)}
-                    className="rounded-xl bg-slate-200 px-4 py-3 text-lg font-bold text-slate-700"
-                  >
-                    -
-                  </button>
-
-                  <input
-                    type="number"
-                    step="0.000001"
-                    className="w-full rounded-xl border p-3 text-center"
-                    placeholder="Quantité"
-                    value={line.display_quantity}
-                    onChange={(e) => handleDisplayQuantityChange(index, e.target.value)}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => adjustLineQuantity(index, 1)}
-                    className="rounded-xl bg-slate-900 px-4 py-3 text-lg font-bold text-white"
-                  >
-                    +
-                  </button>
-                </div>
-
-                <input
-                  className="w-full rounded-xl border p-3"
-                  placeholder="Notes ligne"
-                  value={line.notes}
-                  onChange={(e) => updateLine(index, "notes", e.target.value)}
+              <div className="flex flex-col gap-4 md:flex-row md:items-start">
+                <img
+                  src={selectedIssue.qr_image_url}
+                  alt="QR BSC"
+                  className="h-40 w-40 rounded-xl border bg-white p-2"
                 />
+
+                <div className="space-y-3">
+                  <div className="text-sm break-all text-slate-600">
+                    {buildScanUrl(selectedIssue)}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.open(buildPrintUrl(selectedIssue), "_blank")
+                      }
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-white"
+                    >
+                      Imprimer ticket
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        window.open(buildScanUrl(selectedIssue), "_blank")
+                      }
+                      className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
+                    >
+                      Ouvrir scan
+                    </button>
+                  </div>
+                </div>
               </div>
+            </div>
+          )}
 
-              {product && (
-                <div className="mt-3 rounded-xl bg-slate-50 px-3 py-3 text-xs text-slate-600">
-                  <div>
-                    Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
-                  </div>
+          <div>
+            <h4 className="mb-3 text-lg font-semibold text-slate-800">
+              Lignes du BSC
+            </h4>
 
-                  <div className="mt-1">
-                    Équiv. stock :{" "}
-                    <strong>
-                      {computedRequestedQty > 0
-                        ? formatPreciseQty(computedRequestedQty, 5)
-                        : "0,00000"}{" "}
-                      {getUnitLabel(stockUnit) || "-"}
-                    </strong>
-                  </div>
+            <div className="overflow-x-auto rounded-2xl border">
+              <table className="min-w-full text-left">
+                <thead className="border-b border-slate-200 bg-slate-50">
+                  <tr className="text-slate-600">
+                    <th className="px-4 py-3">Produit</th>
+                    <th className="px-4 py-3">Demandé</th>
+                    <th className="px-4 py-3">Sorti</th>
+                    <th className="px-4 py-3">Reçu</th>
+                    <th className="px-4 py-3">Rejeté</th>
+                    <th className="px-4 py-3">Coût unit.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedIssue.lines ?? []).map((line) => {
+                    const unitLabel = getIssueLineUnitLabel(line);
 
-                  <div className="mt-1 text-slate-500">
-                    Conversion :{" "}
-                    {entryUnit && stockUnit
-                      ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
-                          convertQuantity(1, entryUnit.id, stockUnit.id),
-                          5
-                        )} ${getUnitLabel(stockUnit)}`
-                      : "-"}
-                  </div>
+                    return (
+                      <tr
+                        key={line.id}
+                        className="border-b border-slate-100 hover:bg-slate-50"
+                      >
+                        <td className="px-4 py-3">
+                          {line.product?.name || "-"}
+                        </td>
+                        <td className="px-4 py-3">
+                          {formatQty(line.requested_quantity)} {unitLabel}
+                        </td>
+                        <td className="px-4 py-3">
+                          {formatQty(line.issued_quantity)} {unitLabel}
+                        </td>
+                        <td className="px-4 py-3">
+                          {formatQty(line.received_quantity)} {unitLabel}
+                        </td>
+                        <td className="px-4 py-3">
+                          {formatQty(line.rejected_quantity)} {unitLabel}
+                        </td>
+                        <td className="px-4 py-3">
+                          {line.unit_cost !== null &&
+                          line.unit_cost !== undefined
+                            ? `${formatMoney(line.unit_cost)} Ar`
+                            : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-                  <div className="mt-1">
-                    Stock disponible :{" "}
-                    {stockState?.loading ? (
-                      <strong className="text-slate-500">chargement...</strong>
-                    ) : (
-                      <strong className={overStock ? "text-red-700" : "text-emerald-700"}>
-                        {formatPreciseQty(availableStock, 5)} {getUnitLabel(stockUnit) || "-"}
-                      </strong>
-                    )}
-                  </div>
+          <div>
+            <h4 className="mb-3 text-lg font-semibold text-slate-800">
+              Historique des scans
+            </h4>
 
-                  {entryUnit && !stockState?.loading && (
-                    <div className="mt-1 text-slate-500">
-                      Soit env. {formatPreciseQty(availableInEntryUnit, 5)}{" "}
-                      {getUnitLabel(entryUnit)}
-                    </div>
-                  )}
-
-                  {overStock && (
-                    <div className="mt-2 rounded-lg bg-red-100 px-2 py-2 text-red-700">
-                      La quantité demandée dépasse le stock disponible.
-                    </div>
-                  )}
+            <div className="space-y-3">
+              {getScanEvents(selectedIssue).length === 0 && (
+                <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+                  Aucun scan enregistré pour le moment.
                 </div>
               )}
+
+              {getScanEvents(selectedIssue).map((event) => (
+                <div
+                  key={event.id}
+                  className="rounded-xl border border-slate-200 p-4"
+                >
+                  <div className="font-semibold text-slate-800">
+                    {event.scan_stage} — {event.new_status}
+                  </div>
+
+                  <div className="text-sm text-slate-500">
+                    {event.user?.name ||
+                      event.user?.email ||
+                      "Utilisateur"}{" "}
+                    — {formatDateTime(event.scanned_at)}
+                  </div>
+
+                  {(event.latitude || event.longitude) && (
+                    <div className="text-sm text-slate-500">
+                      GPS: {event.latitude ?? "-"}, {event.longitude ?? "-"}
+                    </div>
+                  )}
+
+                  {event.notes && (
+                    <div className="mt-2 text-sm text-slate-700">
+                      {event.notes}
+                    </div>
+                  )}
+
+                  {event.photo_url && (
+                    <img
+                      src={event.photo_url}
+                      alt="scan"
+                      className="mt-3 h-24 w-24 rounded-xl object-cover"
+                    />
+                  )}
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
-
-      <div className="rounded-xl border p-4">
-        <div className="mb-2 text-sm font-semibold text-slate-700">Notes générales</div>
-        <textarea
-          className="min-h-[100px] w-full rounded-xl border p-3"
-          placeholder="Notes générales du BSC"
-          value={form.notes}
-          onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-        />
-      </div>
-
-      <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
-        Astuce : choisissez d’abord l’unité, puis la quantité. Le système convertit
-        automatiquement vers l’unité de stock.
-      </div>
-
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          onClick={addLine}
-          className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
-        >
-          Ajouter ligne vide
-        </button>
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
-        >
-          {submitting
-            ? "Enregistrement..."
-            : isEditing
-            ? "Mettre à jour le BSC"
-            : "Créer le BSC"}
-        </button>
-
-        {isEditing && (
-          <button
-            type="button"
-            onClick={resetForm}
-            className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
-          >
-            Annuler
-          </button>
-        )}
-      </div>
-    </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 
   if (refsLoading) {
@@ -1475,39 +1409,87 @@ export default function KitchenIssues() {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-      <div className="xl:col-span-6">
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-slate-800">
+          {isEditing ? "Modifier le BSC" : "Bon de Sortie Cuisine"}
+        </h1>
+        <p className="text-slate-500">
+          Demande de sortie interne du dépôt principal vers le dépôt cuisine.
+        </p>
+        {isRestrictedSiteUser && (
+          <p className="mt-1 text-xs text-slate-400">
+            Affichage limité au site d’affectation.
+          </p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {/* Bloc 1 : Création / modification */}
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h1 className="text-3xl font-bold text-slate-800">
-                {isEditing ? "Modifier le BSC" : "Bon de Sortie Cuisine"}
-              </h1>
+              <h2 className="text-xl font-semibold text-slate-800">
+                {isEditing ? "Modifier le BSC" : "Créer un BSC"}
+              </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Demande de sortie interne du dépôt principal vers le dépôt cuisine.
+                Sélection type POS, sans toucher à la logique métier.
               </p>
-              {isRestrictedSiteUser && (
-                <p className="mt-1 text-xs text-slate-400">
-                  Affichage limité au site d’affectation.
-                </p>
-              )}
             </div>
+
+            {isEditing && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-xl bg-slate-200 px-4 py-2 text-slate-800"
+              >
+                Annuler
+              </button>
+            )}
           </div>
 
-          <div className="mb-4 rounded-2xl border bg-slate-50 p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div>
-                <div className="text-xs text-slate-500">Site</div>
-                <div className="font-semibold text-slate-800">
-                  {visibleSites.find((site) => Number(site.id) === Number(form.site_id))
-                    ?.name || "-"}
-                </div>
-              </div>
+          <form onSubmit={submit} className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <select
+                className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
+                value={form.site_id}
+                disabled={isRestrictedSiteUser}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    site_id: e.target.value,
+                    from_warehouse_id: "",
+                    to_warehouse_id: hasFixedDestinationWarehouse
+                      ? fixedDestinationWarehouseId
+                      : "",
+                  }))
+                }
+              >
+                <option value="">Choisir un site</option>
+                {visibleSites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
 
+              <input
+                className="rounded-xl border p-3"
+                value={form.notes}
+                placeholder="Notes générales"
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, notes: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <div className="text-xs text-slate-500">Dépôt source</div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Dépôt source
+                </label>
                 <select
-                  className="mt-1 w-full rounded-xl border p-3"
+                  className="w-full rounded-xl border p-3"
                   value={form.from_warehouse_id}
                   onChange={(e) =>
                     setForm((prev) => ({
@@ -1516,8 +1498,8 @@ export default function KitchenIssues() {
                     }))
                   }
                 >
-                  <option value="">Choisir dépôt source</option>
-                  {sourceWarehouseOptions.map((warehouse) => (
+                  <option value="">Dépôt source</option>
+                  {currentSiteWarehouses.map((warehouse) => (
                     <option key={warehouse.id} value={warehouse.id}>
                       {warehouse.name}
                     </option>
@@ -1526,124 +1508,170 @@ export default function KitchenIssues() {
               </div>
 
               <div>
-                <div className="text-xs text-slate-500">Dépôt destination</div>
-                <div className="mt-1 rounded-xl border bg-white px-3 py-3 font-semibold text-slate-800">
-                  {destinationWarehouse?.name || "-"}
-                </div>
-              </div>
-            </div>
-          </div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Dépôt destination
+                </label>
 
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-            <div className="xl:col-span-4">
-              <div className="rounded-2xl border p-4">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <h2 className="text-lg font-bold text-slate-800">Catégories</h2>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCategory("");
-                      setCatalogSearch("");
-                    }}
-                    className="rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700"
-                  >
-                    Reset
-                  </button>
-                </div>
-
-                <div className="flex gap-2 overflow-x-auto pb-2 xl:block xl:space-y-2 xl:overflow-visible">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCategory("")}
-                    className={`shrink-0 rounded-xl px-3 py-2 text-left ${
-                      selectedCategory === ""
-                        ? "bg-slate-900 text-white"
-                        : "bg-slate-100 text-slate-800"
-                    }`}
-                  >
-                    Toutes
-                  </button>
-
-                  {categoryOptions.map((category) => (
-                    <button
-                      key={category.id || category.name}
-                      type="button"
-                      onClick={() => setSelectedCategory(String(category.id))}
-                      className={`shrink-0 rounded-xl px-3 py-2 text-left ${
-                        String(selectedCategory) === String(category.id)
-                          ? "bg-slate-900 text-white"
-                          : "bg-slate-100 text-slate-800"
-                      }`}
-                    >
-                      {category.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="xl:col-span-8">
-              <div className="rounded-2xl border p-4">
-                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <h2 className="text-lg font-bold text-slate-800">Articles</h2>
-
-                  <input
-                    className="rounded-xl border p-3"
-                    placeholder="Rechercher un produit..."
-                    value={catalogSearch}
-                    onChange={(e) => setCatalogSearch(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {visibleCatalogProducts.map((product) => (
-                    <button
-                      key={product.id}
-                      type="button"
-                      onClick={() => addProductToCart(product)}
-                      className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
-                    >
-                      <div className="font-semibold text-slate-800">{product.name}</div>
-                      <div className="text-sm text-slate-500">{product.code || "-"}</div>
-                      <div className="mt-2 text-xs text-slate-400">
-                        {product.category?.name || "Sans catégorie"}
-                      </div>
-                    </button>
-                  ))}
-
-                  {visibleCatalogProducts.length === 0 && (
-                    <div className="rounded-xl bg-slate-50 p-4 text-slate-500 md:col-span-2">
-                      Aucun produit trouvé.
+                {hasFixedDestinationWarehouse ? (
+                  <div className="rounded-xl border bg-slate-50 p-3 text-slate-800">
+                    <div className="font-semibold">
+                      {destinationWarehouseObject?.name || "Dépôt utilisateur"}
                     </div>
-                  )}
-                </div>
-
-                {catalogProducts.length > 8 && (
-                  <div className="mt-3 text-xs text-slate-500">
-                    Affichage limité aux 8 premiers produits. Affinez la recherche pour voir les autres.
+                    <div className="mt-1 text-xs text-slate-500">
+                      Dépôt figé selon l’affectation utilisateur
+                    </div>
                   </div>
+                ) : (
+                  <select
+                    className="w-full rounded-xl border p-3"
+                    value={form.to_warehouse_id}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        to_warehouse_id: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Dépôt cuisine</option>
+                    {currentSiteWarehouses.map((warehouse) => (
+                      <option key={warehouse.id} value={warehouse.id}>
+                        {warehouse.name}
+                      </option>
+                    ))}
+                  </select>
                 )}
               </div>
             </div>
-          </div>
+
+            <div className="rounded-2xl border p-4">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-lg font-semibold text-slate-800">
+                    Articles
+                  </div>
+                  <div className="text-sm text-slate-500">
+                    Catégories visibles, 8 produits affichés maximum.
+                  </div>
+                </div>
+
+                <div className="w-full lg:w-80">
+                  <input
+                    type="text"
+                    className="w-full rounded-xl border p-3"
+                    placeholder="Rechercher un produit..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-4 flex gap-2 overflow-x-auto pb-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCategory("")}
+                  className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium ${
+                    selectedCategory === ""
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  Toutes
+                </button>
+
+                {categories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => setSelectedCategory(String(category.id))}
+                    className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium ${
+                      selectedCategory === String(category.id)
+                        ? "bg-slate-900 text-white"
+                        : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {category.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {visibleProductCards.length === 0 && (
+                  <div className="col-span-full rounded-xl bg-slate-50 p-4 text-slate-500">
+                    Aucun produit trouvé.
+                  </div>
+                )}
+
+                {visibleProductCards.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => addProductToCart(product)}
+                    className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="font-semibold text-slate-800">{product.name}</div>
+                    <div className="text-sm text-slate-500">{product.code || "-"}</div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      {product.category?.name || product.category_name || "Sans catégorie"}
+                    </div>
+
+                    {sourceStockLoading ? (
+                      <div className="mt-3 text-xs text-slate-400">
+                        Vérification stock...
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-xs text-slate-500">
+                        {getStockRowForProduct(product.id)
+                          ? `Stock dispo: ${formatPreciseQty(
+                              Number(getStockRowForProduct(product.id)?.quantity_available ?? 0),
+                              5
+                            )}`
+                          : "Stock non remonté"}
+                      </div>
+                    )}
+
+                    <div className="mt-3 text-sm text-blue-700">Ajouter au panier</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+              Lignes sélectionnées : <strong>{cartLineCount}</strong>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-xl bg-emerald-700 px-4 py-3 text-white disabled:opacity-60"
+              >
+                {submitting
+                  ? "Enregistrement..."
+                  : isEditing
+                  ? "Mettre à jour le BSC"
+                  : "Créer le BSC"}
+              </button>
+
+              <button
+                type="button"
+                onClick={addLine}
+                className="rounded-xl bg-slate-200 px-4 py-3 text-slate-800"
+              >
+ Voir / modifier le panier
+              </button>
+            </div>
+          </form>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          className="fixed bottom-5 right-5 z-40 rounded-full bg-slate-900 px-5 py-4 text-sm font-semibold text-white shadow-2xl"
-        >
-          Voir le panier ({cartCount})
-        </button>
-      </div>
-
-      <div className="xl:col-span-6">
+        {/* Bloc 2 : Liste */}
         <div className="rounded-2xl bg-white p-6 shadow">
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-slate-800">Historique BSC</h2>
+              <h2 className="text-2xl font-bold text-slate-800">
+                Historique BSC
+              </h2>
               <p className="mt-1 text-sm text-slate-500">
-                Impression ticket, scan rapide, édition avant sortie et suivi des états.
+                Cliquez sur un BSC pour afficher le détail dans un drawer.
               </p>
             </div>
 
@@ -1701,384 +1729,359 @@ export default function KitchenIssues() {
               Chargement des BSC...
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
-              <div className="space-y-3">
-                {filteredIssues.length === 0 && (
-                  <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
-                    Aucun BSC trouvé.
-                  </div>
-                )}
+            <div className="space-y-3">
+              {filteredIssues.length === 0 && (
+                <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+                  Aucun BSC trouvé.
+                </div>
+              )}
 
-                {filteredIssues.map((issue) => {
-                  const fromWarehouse = getFromWarehouse(issue);
-                  const toWarehouse = getToWarehouse(issue);
+              {filteredIssues.map((issue) => {
+                const fromWarehouse = getFromWarehouse(issue);
+                const toWarehouse = getToWarehouse(issue);
 
-                  return (
-                    <div
-                      key={issue.id}
-                      onClick={() => setSelectedId(issue.id)}
-                      className={`cursor-pointer rounded-xl border p-4 transition ${
-                        Number(selectedId) === Number(issue.id)
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-slate-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-semibold text-slate-800">
-                            {issue.issue_number}
-                          </div>
-                          <div className="text-sm text-slate-500">
-                            {issue.site?.name || "-"}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {formatDateTime(issue.requested_at || issue.created_at)}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <span
-                            className={`rounded-lg px-2 py-1 text-xs font-semibold ${statusBadgeClass(
-                              issue.status
-                            )}`}
-                          >
-                            {issue.status}
-                          </span>
-                          <span
-                            className={`rounded-lg px-2 py-1 text-xs font-semibold ${workflowBadgeClass(
-                              issue.workflow_status
-                            )}`}
-                          >
-                            {issue.workflow_status}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 text-sm text-slate-600">
-                        {fromWarehouse?.name || "-"} → {toWarehouse?.name || "-"}
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            startEdit(issue);
-                          }}
-                          disabled={issue.status !== "pending"}
-                          className="rounded-xl bg-blue-700 px-3 py-2 text-sm text-white disabled:opacity-40"
-                        >
-                          Modifier
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(buildPrintUrl(issue), "_blank");
-                          }}
-                          className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white"
-                        >
-                          Imprimer ticket
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(buildScanUrl(issue), "_blank");
-                          }}
-                          className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white"
-                        >
-                          Ouvrir scan
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteIssue(issue);
-                          }}
-                          disabled={
-                            deletingId === issue.id || issue.status !== "pending"
-                          }
-                          className="rounded-xl bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-40"
-                        >
-                          {deletingId === issue.id ? "Suppression..." : "Supprimer"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 p-5">
-                {!selectedIssue ? (
-                  <div className="text-slate-400">Sélectionnez un BSC.</div>
-                ) : (
-                  <div className="space-y-5">
+                return (
+                  <div
+                    key={issue.id}
+                    onClick={() => {
+                      setSelectedId(issue.id);
+                      setDetailOpen(true);
+                    }}
+                    className={`cursor-pointer rounded-xl border p-4 transition ${
+                      Number(selectedId) === Number(issue.id) && detailOpen
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-2xl font-bold text-slate-800">
-                          {selectedIssue.issue_number}
-                        </h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Site : {selectedIssue.site?.name || "-"}
-                        </p>
+                        <div className="font-semibold text-slate-800">
+                          {issue.issue_number}
+                        </div>
+                        <div className="text-sm text-slate-500">
+                          {issue.site?.name || "-"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {formatDateTime(issue.requested_at || issue.created_at)}
+                        </div>
                       </div>
 
                       <div className="flex flex-wrap gap-2">
                         <span
                           className={`rounded-lg px-2 py-1 text-xs font-semibold ${statusBadgeClass(
-                            selectedIssue.status
+                            issue.status
                           )}`}
                         >
-                          {selectedIssue.status}
+                          {issue.status}
                         </span>
-
                         <span
                           className={`rounded-lg px-2 py-1 text-xs font-semibold ${workflowBadgeClass(
-                            selectedIssue.workflow_status
+                            issue.workflow_status
                           )}`}
                         >
-                          {selectedIssue.workflow_status}
+                          {issue.workflow_status}
                         </span>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Dépôt source</div>
-                        <div className="font-semibold text-slate-800">
-                          {getFromWarehouse(selectedIssue)?.name || "-"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Dépôt cuisine</div>
-                        <div className="font-semibold text-slate-800">
-                          {getToWarehouse(selectedIssue)?.name || "-"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Demandé par</div>
-                        <div className="font-semibold text-slate-800">
-                          {getRequestedBy(selectedIssue)?.name ||
-                            getRequestedBy(selectedIssue)?.email ||
-                            "-"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Date demande</div>
-                        <div className="font-semibold text-slate-800">
-                          {formatDateTime(
-                            selectedIssue.requested_at || selectedIssue.created_at
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Sorti du dépôt</div>
-                        <div className="font-semibold text-slate-800">
-                          {formatDateTime(selectedIssue.issued_at)}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {getIssuedBy(selectedIssue)?.name ||
-                            getIssuedBy(selectedIssue)?.email ||
-                            "-"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Reçu en cuisine</div>
-                        <div className="font-semibold text-slate-800">
-                          {formatDateTime(selectedIssue.received_at)}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {getReceivedBy(selectedIssue)?.name ||
-                            getReceivedBy(selectedIssue)?.email ||
-                            "-"}
-                        </div>
-                      </div>
+                    <div className="mt-3 text-sm text-slate-600">
+                      {fromWarehouse?.name || "-"} → {toWarehouse?.name || "-"}
                     </div>
 
-                    {selectedIssue.notes && (
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="text-sm text-slate-500">Notes</div>
-                        <div className="font-semibold text-slate-800">
-                          {selectedIssue.notes}
-                        </div>
-                      </div>
-                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEdit(issue);
+                        }}
+                        disabled={issue.status !== "pending"}
+                        className="rounded-xl bg-blue-700 px-3 py-2 text-sm text-white disabled:opacity-40"
+                      >
+                        Modifier
+                      </button>
 
-                    <div>
-                      <h4 className="mb-3 text-lg font-semibold text-slate-800">
-                        Lignes du BSC
-                      </h4>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(buildPrintUrl(issue), "_blank");
+                        }}
+                        className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white"
+                      >
+                        Imprimer ticket
+                      </button>
 
-                      <div className="overflow-x-auto rounded-2xl border">
-                        <table className="min-w-full text-left">
-                          <thead className="border-b border-slate-200 bg-slate-50">
-                            <tr className="text-slate-600">
-                              <th className="px-4 py-3">Produit</th>
-                              <th className="px-4 py-3">Demandé</th>
-                              <th className="px-4 py-3">Sorti</th>
-                              <th className="px-4 py-3">Reçu</th>
-                              <th className="px-4 py-3">Rejeté</th>
-                              <th className="px-4 py-3">Coût unit.</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(selectedIssue.lines ?? []).map((line) => {
-                              const unitLabel = getIssueLineUnitLabel(line);
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(buildScanUrl(issue), "_blank");
+                        }}
+                        className="rounded-xl bg-emerald-700 px-3 py-2 text-sm text-white"
+                      >
+                        Ouvrir scan
+                      </button>
 
-                              return (
-                                <tr
-                                  key={line.id}
-                                  className="border-b border-slate-100 hover:bg-slate-50"
-                                >
-                                  <td className="px-4 py-3">{line.product?.name || "-"}</td>
-                                  <td className="px-4 py-3">
-                                    {formatQty(line.requested_quantity)} {unitLabel}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {formatQty(line.issued_quantity)} {unitLabel}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {formatQty(line.received_quantity)} {unitLabel}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {formatQty(line.rejected_quantity)} {unitLabel}
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {line.unit_cost !== null &&
-                                    line.unit_cost !== undefined
-                                      ? `${formatMoney(line.unit_cost)} Ar`
-                                      : "-"}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteIssue(issue);
+                        }}
+                        disabled={
+                          deletingId === issue.id || issue.status !== "pending"
+                        }
+                        className="rounded-xl bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-40"
+                      >
+                        {deletingId === issue.id ? "Suppression..." : "Supprimer"}
+                      </button>
                     </div>
-
-                    <div>
-                      <h4 className="mb-3 text-lg font-semibold text-slate-800">
-                        Historique des scans
-                      </h4>
-
-                      <div className="space-y-3">
-                        {getScanEvents(selectedIssue).length === 0 && (
-                          <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
-                            Aucun scan enregistré pour le moment.
-                          </div>
-                        )}
-
-                        {getScanEvents(selectedIssue).map((event) => (
-                          <div
-                            key={event.id}
-                            className="rounded-xl border border-slate-200 p-4"
-                          >
-                            <div className="font-semibold text-slate-800">
-                              {event.scan_stage} — {event.new_status}
-                            </div>
-
-                            <div className="text-sm text-slate-500">
-                              {event.user?.name ||
-                                event.user?.email ||
-                                "Utilisateur"}{" "}
-                              — {formatDateTime(event.scanned_at)}
-                            </div>
-
-                            {(event.latitude || event.longitude) && (
-                              <div className="text-sm text-slate-500">
-                                GPS: {event.latitude ?? "-"}, {event.longitude ?? "-"}
-                              </div>
-                            )}
-
-                            {event.notes && (
-                              <div className="mt-2 text-sm text-slate-700">
-                                {event.notes}
-                              </div>
-                            )}
-
-                            {event.photo_url && (
-                              <img
-                                src={event.photo_url}
-                                alt="scan"
-                                className="mt-3 h-24 w-24 rounded-xl object-cover"
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {selectedIssue.qr_image_url && (
-                      <div className="rounded-xl bg-slate-50 p-4">
-                        <div className="mb-3 text-sm font-semibold text-slate-700">
-                          QR BSC
-                        </div>
-
-                        <div className="flex flex-col gap-4 md:flex-row md:items-start">
-                          <img
-                            src={selectedIssue.qr_image_url}
-                            alt="QR BSC"
-                            className="h-40 w-40 rounded-xl border bg-white p-2"
-                          />
-
-                          <div className="space-y-3">
-                            <div className="text-sm break-all text-slate-600">
-                              {buildScanUrl(selectedIssue)}
-                            </div>
-
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  window.open(buildPrintUrl(selectedIssue), "_blank")
-                                }
-                                className="rounded-xl bg-slate-900 px-4 py-2 text-white"
-                              >
-                                Imprimer ticket
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  window.open(buildScanUrl(selectedIssue), "_blank")
-                                }
-                                className="rounded-xl bg-emerald-700 px-4 py-2 text-white"
-                              >
-                                Ouvrir scan
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                )}
-              </div>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
-      <Drawer
-        open={drawerOpen}
-        onClose={() => {
-          setDrawerOpen(false);
-          setProductSearchIndex(null);
-        }}
-        title={`Panier BSC (${cartCount})`}
+      {/* Bouton flottant panier */}
+      <button
+        type="button"
+        onClick={() => setCartOpen(true)}
+        className="fixed bottom-5 right-5 z-40 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-2xl"
       >
-        {renderDrawerContent()}
-      </Drawer>
+        Voir le panier ({cartLineCount})
+      </button>
+
+      {/* Drawer panier */}
+      {cartOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40">
+          <div
+            className={`absolute bg-white shadow-2xl ${
+              isMobile
+                ? "bottom-0 left-0 right-0 max-h-[90vh] rounded-t-3xl"
+                : "bottom-0 right-0 top-0 w-full max-w-xl"
+            }`}
+          >
+            <div className="flex items-center justify-between border-b p-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Panier BSC</h3>
+                <p className="text-sm text-slate-500">
+                  {cartLineCount} ligne(s)
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCartOpen(false)}
+                className="rounded-xl bg-slate-200 px-3 py-2 text-sm text-slate-700"
+              >
+                Fermer
+              </button>
+            </div>
+
+            <div className="max-h-[calc(100vh-180px)] space-y-4 overflow-y-auto p-4">
+              {form.lines.filter((line) => line.product_id).length === 0 && (
+                <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+                  Aucun article dans le panier.
+                </div>
+              )}
+
+              {form.lines.map((line, index) => {
+                const product = getLineProduct(line);
+                const entryUnit = getLineEntryUnit(line);
+                const stockUnit = getLineStockUnit(line);
+                const entryUnitOptions = getLineEntryUnitOptions(line);
+                const computedRequestedQty = computeRequestedQuantity(line);
+                const availableQty = getKnownAvailableQty(line.product_id);
+                const hasKnownStock = availableQty !== null;
+                const exceedsAvailable =
+                  hasKnownStock && computedRequestedQty > Number(availableQty) + 1e-9;
+
+                if (!line.product_id) return null;
+
+                return (
+                  <div
+                    key={`${line.product_id}-${index}`}
+                    className={`rounded-2xl border p-4 ${
+                      exceedsAvailable
+                        ? "border-red-300 bg-red-50"
+                        : "border-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-slate-800">
+                          {product?.name || "-"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {product?.code || "-"}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => removeLine(index)}
+                        className="rounded-xl bg-red-600 px-3 py-2 text-sm text-white"
+                      >
+                        Retirer
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1.2fr_1fr]">
+                      <div>
+                        <div className="mb-1 text-sm text-slate-500">Unité</div>
+                        <select
+                          className="w-full rounded-xl border p-3"
+                          value={line.display_unit_id || ""}
+                          onChange={(e) =>
+                            handleDisplayUnitChange(index, e.target.value)
+                          }
+                          disabled={entryUnitOptions.length <= 1}
+                        >
+                          <option value="">Unité</option>
+                          {entryUnitOptions.map((unit) => (
+                            <option key={unit.id} value={unit.id}>
+                              {getUnitLabel(unit)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <div className="mb-1 text-sm text-slate-500">Quantité</div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => decrementLine(index)}
+                            className="rounded-xl bg-slate-200 px-3 py-3 text-slate-800"
+                          >
+                            -
+                          </button>
+
+                          <input
+                            type="number"
+                            step="0.000001"
+                            className="w-full rounded-xl border p-3 text-center"
+                            placeholder="Quantité"
+                            value={line.display_quantity}
+                            onChange={(e) =>
+                              handleDisplayQuantityChange(index, e.target.value)
+                            }
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => incrementLine(index)}
+                            className="rounded-xl bg-slate-900 px-3 py-3 text-white"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <textarea
+                      className="mt-3 w-full rounded-xl border p-3"
+                      placeholder="Notes ligne"
+                      value={line.notes}
+                      onChange={(e) => updateLine(index, "notes", e.target.value)}
+                    />
+
+                    <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      <div>
+                        Unité saisie : <strong>{getUnitLabel(entryUnit) || "-"}</strong>
+                      </div>
+                      <div className="mt-1">
+                        Équiv. stock :{" "}
+                        <strong>
+                          {computedRequestedQty > 0
+                            ? formatPreciseQty(computedRequestedQty, 5)
+                            : "0,00000"}{" "}
+                          {getUnitLabel(stockUnit) || "-"}
+                        </strong>
+                      </div>
+                      <div className="mt-1 text-slate-500">
+                        Conversion :{" "}
+                        {entryUnit && stockUnit
+                          ? `1 ${getUnitLabel(entryUnit)} = ${formatPreciseQty(
+                              convertQuantity(1, entryUnit.id, stockUnit.id),
+                              5
+                            )} ${getUnitLabel(stockUnit)}`
+                          : "-"}
+                      </div>
+
+                      <div
+                        className={`mt-2 rounded-lg px-3 py-2 ${
+                          exceedsAvailable
+                            ? "bg-red-100 text-red-700"
+                            : "bg-white text-slate-600"
+                        }`}
+                      >
+                        {sourceStockLoading ? (
+                          "Vérification stock..."
+                        ) : hasKnownStock ? (
+                          <>
+                            Stock disponible dépôt source :{" "}
+                            <strong>
+                              {formatPreciseQty(availableQty, 5)}{" "}
+                              {getUnitLabel(stockUnit) || "-"}
+                            </strong>
+                            {exceedsAvailable && (
+                              <span className="ml-2 font-semibold">
+                                — Quantité demandée supérieure au stock disponible
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          "Stock disponible non remonté pour ce produit"
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+                Estimation indicative : <strong>{formatMoney(totalEstimated)} Ar</strong>
+              </div>
+
+              <div className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+                Astuce : le chef saisit la quantité dans l’unité pratique.
+                Le système convertit automatiquement vers l’unité de stock réelle.
+              </div>
+            </div>
+
+            <div className="border-t p-4">
+              <button
+                type="button"
+                onClick={() => setCartOpen(false)}
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white"
+              >
+                Fermer le panier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drawer détail */}
+      {detailOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40">
+          <div
+            className={`absolute overflow-y-auto bg-white shadow-2xl ${
+              isStandalone
+                ? "inset-0"
+                : isMobile
+                ? "bottom-0 left-0 right-0 top-[8%] rounded-t-3xl"
+                : "bottom-0 right-0 top-0 w-full max-w-4xl"
+            }`}
+          >
+            <div className="p-5">{renderDetailContent()}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
