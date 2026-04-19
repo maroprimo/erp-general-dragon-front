@@ -53,7 +53,7 @@ const PAGE_ACCESS = {
   stockInventories: ["pdg", "admin", "stock", "controle"],
 
   ProductionLive: ["pdg", "admin", "stock", "controle", "cuisine"],
-  newProduction: ["pdg", "admin", "cuisine"],
+  newProduction: ["pdg", "admin", "cuisine", "stock"],
   productionActions: ["pdg", "admin", "cuisine"],
   productionFinish: ["pdg", "admin", "cuisine"],
   recipes: ["pdg", "admin", "stock"],

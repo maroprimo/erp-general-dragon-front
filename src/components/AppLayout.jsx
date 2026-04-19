@@ -89,12 +89,12 @@ const MENU_GROUPS = [
       {
         key: "newProduction",
         label: "Fabrication",
-        roles: ["pdg", "admin"],
+        roles: ["pdg", "admin", "cuisine"],
       },
       {
         key: "productionActions",
         label: "Actions fabrication",
-        roles: ["pdg", "admin"],
+        roles: ["pdg", "admin", "cuisine"],
       },
       {
         key: "ProductionLive",
@@ -104,7 +104,7 @@ const MENU_GROUPS = [
       {
         key: "recipes",
         label: "Fiches techniques",
-        roles: ["pdg", "admin", "stock"],
+        roles: ["pdg", "admin", "stock", "cuisine"],
       },
       {
         key: "kitchenIssues",
