@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../services/api";
 import useReferences from "../hooks/useReferences";
 import { useAuth } from "../context/AuthContext";
@@ -74,6 +74,92 @@ function EmptyState({ message }) {
   );
 }
 
+function Pagination({ currentPage, totalPages, totalItems, pageSize, onPageChange }) {
+  if (totalItems === 0) return null;
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  const pageNumbers = [];
+  const from = Math.max(1, currentPage - 2);
+  const to = Math.min(totalPages, currentPage + 2);
+
+  for (let page = from; page <= to; page += 1) {
+    pageNumbers.push(page);
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-sm text-slate-600">
+        Affichage de <span className="font-semibold text-slate-900">{startItem}</span> à{" "}
+        <span className="font-semibold text-slate-900">{endItem}</span> sur{" "}
+        <span className="font-semibold text-slate-900">{totalItems}</span> article(s)
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Précédent
+        </button>
+
+        {from > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => onPageChange(1)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              1
+            </button>
+            {from > 2 ? <span className="px-1 text-slate-400">…</span> : null}
+          </>
+        )}
+
+        {pageNumbers.map((page) => (
+          <button
+            key={page}
+            type="button"
+            onClick={() => onPageChange(page)}
+            className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
+              page === currentPage
+                ? "bg-slate-900 text-white"
+                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            {page}
+          </button>
+        ))}
+
+        {to < totalPages && (
+          <>
+            {to < totalPages - 1 ? <span className="px-1 text-slate-400">…</span> : null}
+            <button
+              type="button"
+              onClick={() => onPageChange(totalPages)}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              {totalPages}
+            </button>
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Suivant
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function Stock() {
   const { sites, warehouses, units, loading: refsLoading } = useReferences();
   const { user } = useAuth();
@@ -81,21 +167,23 @@ export default function Stock() {
   const [stocks, setStocks] = useState([]);
   const [error, setError] = useState("");
   const [loadingStocks, setLoadingStocks] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const pageSize = 20;
+  const initialAutoLoadSkipped = useRef(false);
 
   const [filters, setFilters] = useState({
     site_id: "",
     warehouse_id: "",
     report_date: getTodayYmd(),
-    display_unit_id: "",
+    product_id: "",
   });
 
   const isStockSiteUser = user?.role === "stock";
 
   const visibleSites = useMemo(() => {
     if (isStockSiteUser) {
-      return (sites ?? []).filter(
-        (site) => Number(site.id) === Number(user?.site_id)
-      );
+      return (sites ?? []).filter((site) => Number(site.id) === Number(user?.site_id));
     }
     return sites ?? [];
   }, [sites, isStockSiteUser, user]);
@@ -137,61 +225,59 @@ export default function Stock() {
     return (num(qty) * fromRatio) / toRatio;
   };
 
-  const loadStock = async (customFilters = filters) => {
-    try {
-      setLoadingStocks(true);
-      const params = {};
+  const loadStock = useCallback(
+    async (customFilters = filters) => {
+      try {
+        setLoadingStocks(true);
+        const params = {};
 
-      const effectiveSiteId =
-        isStockSiteUser && user?.site_id
-          ? String(user.site_id)
-          : customFilters.site_id;
+        const effectiveSiteId =
+          isStockSiteUser && user?.site_id ? String(user.site_id) : customFilters.site_id;
 
-      if (effectiveSiteId) params.site_id = effectiveSiteId;
-      if (customFilters.warehouse_id) params.warehouse_id = customFilters.warehouse_id;
-      if (customFilters.report_date) params.report_date = customFilters.report_date;
-      if (customFilters.display_unit_id) params.display_unit_id = customFilters.display_unit_id;
+        if (effectiveSiteId) params.site_id = effectiveSiteId;
+        if (customFilters.warehouse_id) params.warehouse_id = customFilters.warehouse_id;
+        if (customFilters.report_date) params.report_date = customFilters.report_date;
 
-      const res = await api.get("/stock-levels", { params });
+        const res = await api.get("/stock-levels", { params });
 
-      const rows = Array.isArray(res.data?.data)
-        ? res.data.data
-        : Array.isArray(res.data)
-        ? res.data
-        : [];
+        const rows = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data)
+            ? res.data
+            : [];
 
-      setStocks(rows);
-      setError("");
-    } catch (err) {
-      console.error(err);
-      setError("Impossible de charger le stock");
-    } finally {
-      setLoadingStocks(false);
-    }
-  };
+        setStocks(rows);
+        setError("");
+      } catch (err) {
+        console.error(err);
+        setError("Impossible de charger le stock");
+      } finally {
+        setLoadingStocks(false);
+      }
+    },
+    [filters, isStockSiteUser, user]
+  );
 
   useEffect(() => {
-    if (user?.site_id) {
-      const nextFilters = {
-        site_id: String(user.site_id),
-        warehouse_id: "",
-        report_date: getTodayYmd(),
-        display_unit_id: "",
-      };
-      setFilters(nextFilters);
-      loadStock(nextFilters);
-    } else {
-      const nextFilters = {
-        site_id: "",
-        warehouse_id: "",
-        report_date: getTodayYmd(),
-        display_unit_id: "",
-      };
-      setFilters(nextFilters);
-      loadStock(nextFilters);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const nextFilters = {
+      site_id: user?.site_id ? String(user.site_id) : "",
+      warehouse_id: "",
+      report_date: getTodayYmd(),
+      product_id: "",
+    };
+
+    setFilters(nextFilters);
+    setCurrentPage(1);
   }, [user]);
+
+  useEffect(() => {
+    if (!initialAutoLoadSkipped.current) {
+      initialAutoLoadSkipped.current = true;
+      return;
+    }
+
+    loadStock(filters);
+  }, [filters.site_id, filters.warehouse_id, filters.report_date, loadStock]);
 
   useEffect(() => {
     if (!filters.site_id && !user?.site_id) return;
@@ -209,30 +295,79 @@ export default function Stock() {
         warehouse_id: "",
       }));
     }
-  }, [
-    visibleWarehouses,
-    filters.warehouse_id,
-    filters.site_id,
-    isStockSiteUser,
-    user,
-  ]);
+  }, [visibleWarehouses, filters.warehouse_id, filters.site_id, isStockSiteUser, user]);
+
+  const productOptions = useMemo(() => {
+    const map = new Map();
+
+    (stocks ?? []).forEach((item) => {
+      const productId = item.product?.id ?? item.product_id;
+      const productName = item.product?.name ?? item.product_id;
+
+      if (!productId || !productName || map.has(String(productId))) return;
+
+      map.set(String(productId), {
+        id: String(productId),
+        name: String(productName),
+      });
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  }, [stocks]);
+
+  const filteredStocks = useMemo(() => {
+    if (!filters.product_id) {
+      return stocks;
+    }
+
+    return stocks.filter(
+      (item) => String(item.product?.id ?? item.product_id ?? "") === String(filters.product_id)
+    );
+  }, [stocks, filters.product_id]);
+
+  useEffect(() => {
+    if (!filters.product_id) return;
+
+    const stillExists = productOptions.some(
+      (product) => String(product.id) === String(filters.product_id)
+    );
+
+    if (!stillExists) {
+      setFilters((prev) => ({ ...prev, product_id: "" }));
+    }
+  }, [productOptions, filters.product_id]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.site_id, filters.warehouse_id, filters.product_id, filters.report_date]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredStocks.length / pageSize));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedStocks = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredStocks.slice(start, start + pageSize);
+  }, [filteredStocks, currentPage]);
 
   const handleChange = (field, value) => {
     if (field === "site_id" && isStockSiteUser) {
       return;
     }
 
-    const nextFilters = { ...filters, [field]: value };
+    setFilters((prev) => {
+      const nextFilters = { ...prev, [field]: value };
 
-    if (field === "site_id") {
-      nextFilters.warehouse_id = "";
-    }
+      if (field === "site_id") {
+        nextFilters.warehouse_id = "";
+      }
 
-    setFilters(nextFilters);
-  };
-
-  const applyFilters = () => {
-    loadStock(filters);
+      return nextFilters;
+    });
   };
 
   const getUnitName = (item) => {
@@ -307,34 +442,33 @@ export default function Stock() {
   const getStockValue = (item) => {
     return num(
       item.stock_value ??
-        num(item.closing_quantity ?? item.quantity_on_hand ?? 0) *
-          num(item.average_unit_cost ?? 0)
+        num(item.closing_quantity ?? item.quantity_on_hand ?? 0) * num(item.average_unit_cost ?? 0)
     );
   };
 
   const getMinQty = (item) => {
     const stockUnitId = item.product?.stock_unit_id;
-    const displayUnitId =
-      item.display_unit_id || item.product?.stock_unit_id;
+    const displayUnitId = item.display_unit_id || item.product?.stock_unit_id;
 
     return convertQty(item.product?.min_stock ?? 0, stockUnitId, displayUnitId);
   };
 
   const getReorderQty = (item) => {
     const stockUnitId = item.product?.stock_unit_id;
-    const displayUnitId =
-      item.display_unit_id || item.product?.stock_unit_id;
+    const displayUnitId = item.display_unit_id || item.product?.stock_unit_id;
 
     return convertQty(item.product?.reorder_point ?? 0, stockUnitId, displayUnitId);
   };
 
   const summary = useMemo(() => {
-    const totalProducts = stocks.length;
-    const totalValue = stocks.reduce((sum, item) => sum + getStockValue(item), 0);
-    const criticalCount = stocks.filter((item) => item.stock_status === "critical").length;
-    const warningCount = stocks.filter((item) => item.stock_status === "warning").length;
-    const ruptureCount = stocks.filter((item) => item.stock_status === "out_of_stock").length;
-    const transferableCount = stocks.filter((item) => item.inter_site_transfer_available).length;
+    const totalProducts = filteredStocks.length;
+    const totalValue = filteredStocks.reduce((sum, item) => sum + getStockValue(item), 0);
+    const criticalCount = filteredStocks.filter((item) => item.stock_status === "critical").length;
+    const warningCount = filteredStocks.filter((item) => item.stock_status === "warning").length;
+    const ruptureCount = filteredStocks.filter((item) => item.stock_status === "out_of_stock").length;
+    const transferableCount = filteredStocks.filter(
+      (item) => item.inter_site_transfer_available
+    ).length;
 
     return {
       totalProducts,
@@ -344,25 +478,25 @@ export default function Stock() {
       ruptureCount,
       transferableCount,
     };
-  }, [stocks]);
+  }, [filteredStocks]);
 
   if (refsLoading) {
     return <div className="p-6">Chargement des références...</div>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full max-w-none space-y-6">
       <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-700 px-6 py-6 text-white">
+        <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-700 px-6 py-6 text-white 2xl:px-8">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
             <div>
               <div className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white/90">
                 Dragon ERP • Stock
               </div>
               <h1 className="mt-3 text-3xl font-black">Stock par dépôt</h1>
-              <p className="mt-2 max-w-3xl text-sm text-cyan-50">
+              <p className="mt-2 max-w-4xl text-sm text-cyan-50">
                 Vue du stock par site et dépôt, avec report journalier, statut des articles,
-                valeur du stock et lecture multi-unités.
+                valeur du stock et lecture détaillée des mouvements.
               </p>
             </div>
 
@@ -373,8 +507,8 @@ export default function Stock() {
           </div>
         </div>
 
-        <div className="p-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="p-5 2xl:p-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
             <select
               className="rounded-xl border p-3 disabled:bg-slate-100 disabled:text-slate-500"
               value={filters.site_id}
@@ -402,32 +536,25 @@ export default function Stock() {
               ))}
             </select>
 
+            <select
+              className="rounded-xl border p-3"
+              value={filters.product_id}
+              onChange={(e) => handleChange("product_id", e.target.value)}
+            >
+              <option value="">Tous les articles</option>
+              {productOptions.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
+            </select>
+
             <input
               type="date"
               className="rounded-xl border p-3"
               value={filters.report_date}
               onChange={(e) => handleChange("report_date", e.target.value)}
             />
-
-            <select
-              className="rounded-xl border p-3"
-              value={filters.display_unit_id}
-              onChange={(e) => handleChange("display_unit_id", e.target.value)}
-            >
-              <option value="">Unité stock produit</option>
-              {(units ?? []).map((unit) => (
-                <option key={unit.id} value={unit.id}>
-                  {unit.name}
-                </option>
-              ))}
-            </select>
-
-            <button
-              onClick={applyFilters}
-              className="rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-800"
-            >
-              Appliquer
-            </button>
           </div>
         </div>
       </div>
@@ -482,12 +609,12 @@ export default function Stock() {
           <div className="h-24 animate-pulse rounded-3xl bg-slate-200" />
           <div className="h-96 animate-pulse rounded-3xl bg-slate-200" />
         </div>
-      ) : stocks.length === 0 ? (
+      ) : filteredStocks.length === 0 ? (
         <EmptyState message="Aucun stock trouvé pour ces filtres." />
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 xl:hidden">
-            {stocks.map((item) => {
+            {paginatedStocks.map((item) => {
               const unitName = getUnitName(item);
 
               return (
@@ -531,11 +658,6 @@ export default function Stock() {
                           {text(item.warehouse?.name, item.warehouse_id)}
                         </div>
                       </div>
-                    </div>
-
-                    <div className="rounded-2xl bg-blue-50 p-3">
-                      <div className="text-xs uppercase tracking-wide text-blue-700">Unité affichée</div>
-                      <div className="mt-1 font-bold text-blue-900">{unitName || "-"}</div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -631,38 +753,37 @@ export default function Stock() {
           </div>
 
           <div className="hidden overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm xl:block">
-            <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4">
+            <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 px-5 py-4 2xl:px-6">
               <h2 className="text-xl font-bold text-slate-800">Tableau détaillé du stock</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Lecture par dépôt, statut, valeur et quantités converties dans l’unité d’affichage.
+                Lecture élargie par dépôt, statut, valeur et mouvements, avec catégorie visible.
               </p>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left">
+              <table className="min-w-[1600px] w-full text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr className="text-slate-600">
-                    <th className="px-4 py-3">Produit</th>
-                    <th className="px-4 py-3">Catégorie</th>
-                    <th className="px-4 py-3">Site</th>
-                    <th className="px-4 py-3">Dépôt</th>
-                    <th className="px-4 py-3">Unité</th>
-                    <th className="px-4 py-3">Stock initial</th>
-                    <th className="px-4 py-3">Entrées</th>
-                    <th className="px-4 py-3">Sorties</th>
-                    <th className="px-4 py-3">Stock final</th>
-                    <th className="px-4 py-3">Report J+1</th>
-                    <th className="px-4 py-3">Disponible</th>
-                    <th className="px-4 py-3">Min</th>
-                    <th className="px-4 py-3">Reorder</th>
-                    <th className="px-4 py-3">Coût moyen</th>
-                    <th className="px-4 py-3">Valeur stock</th>
-                    <th className="px-4 py-3">Statut</th>
-                    <th className="px-4 py-3">Transfert</th>
+                    <th className="whitespace-nowrap px-3 py-3">Produit</th>
+                    <th className="whitespace-nowrap px-3 py-3">Catégorie</th>
+                    <th className="whitespace-nowrap px-3 py-3">Site</th>
+                    <th className="whitespace-nowrap px-3 py-3">Dépôt</th>
+                    <th className="whitespace-nowrap px-3 py-3">Stock initial</th>
+                    <th className="whitespace-nowrap px-3 py-3">Entrées</th>
+                    <th className="whitespace-nowrap px-3 py-3">Sorties</th>
+                    <th className="whitespace-nowrap px-3 py-3">Stock final</th>
+                    <th className="whitespace-nowrap px-3 py-3">Report J+1</th>
+                    <th className="whitespace-nowrap px-3 py-3">Disponible</th>
+                    <th className="whitespace-nowrap px-3 py-3">Min</th>
+                    <th className="whitespace-nowrap px-3 py-3">Reorder</th>
+                    <th className="whitespace-nowrap px-3 py-3">Coût moyen</th>
+                    <th className="whitespace-nowrap px-3 py-3">Valeur stock</th>
+                    <th className="whitespace-nowrap px-3 py-3">Statut</th>
+                    <th className="whitespace-nowrap px-3 py-3">Transfert</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stocks.map((item) => {
+                  {paginatedStocks.map((item) => {
                     const unitName = getUnitName(item);
 
                     return (
@@ -670,52 +791,49 @@ export default function Stock() {
                         key={item.id}
                         className="border-b border-slate-100 transition hover:bg-slate-50"
                       >
-                        <td className="px-4 py-3 font-semibold text-slate-800">
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-800">
                           {item.product?.name ?? item.product_id}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                           {item.product?.category?.name ?? "-"}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                           {text(item.site?.name, item.site_id)}
                         </td>
-                        <td className="px-4 py-3 text-slate-600">
+                        <td className="whitespace-nowrap px-3 py-3 text-slate-600">
                           {text(item.warehouse?.name, item.warehouse_id)}
                         </td>
-                        <td className="px-4 py-3 font-medium text-slate-700">
-                          {unitName || "-"}
-                        </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           {formatQty(getOpeningQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-emerald-700">
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-emerald-700">
                           {formatQty(getIncomingQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-rose-700">
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-rose-700">
                           {formatQty(getOutgoingQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-violet-700">
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-violet-700">
                           {formatQty(getClosingQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-cyan-700">
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-cyan-700">
                           {formatQty(getNextDayOpeningQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-amber-700">
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-amber-700">
                           {formatQty(getAvailableQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           {formatQty(getMinQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           {formatQty(getReorderQty(item))} {unitName}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           {formatMoney(item.average_unit_cost)} Ar
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-900">
+                        <td className="whitespace-nowrap px-3 py-3 font-bold text-slate-900">
                           {formatMoney(getStockValue(item))} Ar
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(
                               item.stock_status
@@ -724,7 +842,7 @@ export default function Stock() {
                             {getStatusLabel(item.stock_status)}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-3 py-3">
                           {item.inter_site_transfer_available ? (
                             <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
                               Oui
@@ -739,9 +857,9 @@ export default function Stock() {
                     );
                   })}
 
-                  {stocks.length === 0 && (
+                  {paginatedStocks.length === 0 && (
                     <tr>
-                      <td colSpan={17} className="px-4 py-6 text-center text-slate-500">
+                      <td colSpan={16} className="px-4 py-6 text-center text-slate-500">
                         Aucun stock trouvé pour ces filtres.
                       </td>
                     </tr>
@@ -750,6 +868,14 @@ export default function Stock() {
               </table>
             </div>
           </div>
+
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredStocks.length}
+            pageSize={pageSize}
+            onPageChange={(page) => setCurrentPage(Math.min(Math.max(page, 1), totalPages))}
+          />
         </>
       )}
     </div>
