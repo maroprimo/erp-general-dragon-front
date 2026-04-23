@@ -78,20 +78,20 @@ export default function InterSiteRequest() {
     sites: hookSites = [],
     warehouses: hookWarehouses = [],
     products: hookProducts = [],
-    units: hookUnits = [],
     loading: hookRefsLoading,
   } = useReferences() || {};
 
   const [sites, setSites] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
-  const [units, setUnits] = useState([]);
 
   const [refsLoading, setRefsLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [approvalDraftLines, setApprovalDraftLines] = useState([]);
 
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -163,7 +163,7 @@ export default function InterSiteRequest() {
   }, []);
 
   useEffect(() => {
-    if (detailOpen) {
+    if (cartOpen || detailOpen) {
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = "";
@@ -174,14 +174,13 @@ export default function InterSiteRequest() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [detailOpen]);
+  }, [cartOpen, detailOpen]);
 
   const loadReferenceFallbacks = async () => {
     try {
       let finalSites = Array.isArray(hookSites) ? hookSites : [];
       let finalWarehouses = Array.isArray(hookWarehouses) ? hookWarehouses : [];
       let finalProducts = Array.isArray(hookProducts) ? hookProducts : [];
-      let finalUnits = Array.isArray(hookUnits) ? hookUnits : [];
 
       if (finalSites.length === 0) {
         const siteCandidates = ["/references/sites", "/sites"];
@@ -227,24 +226,9 @@ export default function InterSiteRequest() {
         }
       }
 
-      if (finalUnits.length === 0) {
-        const unitCandidates = ["/references/units", "/units"];
-        for (const url of unitCandidates) {
-          try {
-            const res = await api.get(url);
-            const rows = extractCollection(res.data);
-            if (rows.length > 0) {
-              finalUnits = rows;
-              break;
-            }
-          } catch (_) {}
-        }
-      }
-
       setSites(finalSites);
       setWarehouses(finalWarehouses);
       setProducts(finalProducts);
-      setUnits(finalUnits);
 
       if (
         finalSites.length === 0 ||
@@ -275,6 +259,17 @@ export default function InterSiteRequest() {
     }
   };
 
+  const loadPendingCount = async () => {
+    try {
+      const res = await api.get("/inter-site-requests/pending-count");
+      const count = Number(res?.data?.count || 0);
+      setPendingCount(Number.isFinite(count) ? count : 0);
+    } catch (err) {
+      console.error(err);
+      setPendingCount(0);
+    }
+  };
+
   const openRequest = async (id) => {
     if (!id) return;
 
@@ -282,7 +277,20 @@ export default function InterSiteRequest() {
       setDetailLoading(true);
       setDetailOpen(true);
       const res = await api.get(`/inter-site-requests/${id}`);
-      setSelectedRequest(extractItem(res.data));
+      const requestItem = extractItem(res.data);
+      setSelectedRequest(requestItem);
+      setApprovalDraftLines(
+        (requestItem?.lines || []).map((line) => ({
+          id: line.id,
+          product_id: line.product_id,
+          requested_quantity: line.requested_quantity,
+          approved_quantity:
+            line.approved_quantity != null
+              ? String(line.approved_quantity)
+              : String(line.requested_quantity ?? 0),
+          notes: line.notes || "",
+        }))
+      );
     } catch (err) {
       console.error(err);
       toast.error("Impossible d’ouvrir ce BT");
@@ -294,6 +302,7 @@ export default function InterSiteRequest() {
 
   useEffect(() => {
     loadRequests();
+    loadPendingCount();
   }, []);
 
   useEffect(() => {
@@ -302,6 +311,14 @@ export default function InterSiteRequest() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hookRefsLoading]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      loadPendingCount();
+    }, 30000);
+
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (refsLoading) return;
@@ -509,30 +526,6 @@ export default function InterSiteRequest() {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [products]);
 
-  const unitsById = useMemo(() => {
-    const map = new Map();
-    (units || []).forEach((unit) => {
-      map.set(Number(unit.id), unit);
-    });
-    return map;
-  }, [units]);
-
-  const getStockUnitLabel = (product) => {
-    if (!product) return "";
-
-    return (
-      product.stock_unit?.symbol ||
-      product.stock_unit?.name ||
-      product.unit?.symbol ||
-      product.unit?.name ||
-      product.stock_unit_name ||
-      product.unit_name ||
-      unitsById.get(Number(product.stock_unit_id))?.symbol ||
-      unitsById.get(Number(product.stock_unit_id))?.name ||
-      ""
-    );
-  };
-
   const filteredProducts = useMemo(() => {
     let rows = [...(products || [])];
 
@@ -626,6 +619,18 @@ export default function InterSiteRequest() {
     updateLine(index, "requested_quantity", String((qty || 0) + 1));
   };
 
+
+  const updateApprovalLine = (index, field, value) => {
+    setApprovalDraftLines((prev) => {
+      const lines = [...prev];
+      lines[index] = {
+        ...lines[index],
+        [field]: value,
+      };
+      return lines;
+    });
+  };
+
   const createRequest = async () => {
     if (!form.from_site_id) {
       toast.error("Choisir le site expéditeur");
@@ -679,6 +684,7 @@ export default function InterSiteRequest() {
 
       toast.success(res.data?.message || "BT créé");
       await loadRequests();
+      await loadPendingCount();
 
       if (created?.id) {
         await openRequest(created.id);
@@ -696,16 +702,40 @@ export default function InterSiteRequest() {
   const approveRequest = async () => {
     if (!selectedRequest?.id) return;
 
+    const payload = {
+      lines: (approvalDraftLines || []).map((line) => ({
+        id: Number(line.id),
+        approved_quantity: Number(line.approved_quantity || 0),
+        notes: line.notes || "",
+      })),
+    };
+
+    const invalidLine = payload.lines.find(
+      (line) => !Number.isFinite(line.approved_quantity) || line.approved_quantity < 0
+    );
+
+    if (!payload.lines.length) {
+      toast.error("Aucune ligne à approuver");
+      return;
+    }
+
+    if (invalidLine) {
+      toast.error("Les quantités approuvées doivent être supérieures ou égales à 0");
+      return;
+    }
+
     try {
       setApproving(true);
 
       const res = await api.post(
-        `/inter-site-requests/${selectedRequest.id}/approve`
+        `/inter-site-requests/${selectedRequest.id}/approve`,
+        payload
       );
 
       toast.success(res.data?.message || "Bon de transfert approuvé");
 
       await loadRequests();
+      await loadPendingCount();
       await openRequest(selectedRequest.id);
     } catch (err) {
       console.error(err);
@@ -854,7 +884,7 @@ export default function InterSiteRequest() {
                 disabled={approving}
                 className="rounded-xl bg-emerald-700 px-4 py-2 text-sm text-white disabled:opacity-60"
               >
-                {approving ? "Approbation..." : "Approuver BT"}
+                {approving ? "Validation..." : "Valider la demande"}
               </button>
             )}
           </div>
@@ -914,48 +944,119 @@ export default function InterSiteRequest() {
           )}
 
           <div className="rounded-2xl border border-slate-200 p-4">
-            <h3 className="mb-3 font-semibold text-slate-800">Lignes</h3>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-slate-800">Lignes</h3>
+              {canApproveRequest && String(selectedRequest.status || "").toLowerCase() === "pending" && (
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                  Modifiable avant validation
+                </span>
+              )}
+            </div>
 
             <div className="space-y-3">
-              {(selectedRequest.lines ?? []).map((line) => {
-                const stockUnitLabel = getStockUnitLabel(line.product);
-                const qtySuffix = stockUnitLabel ? ` ${stockUnitLabel}` : "";
+              {(canApproveRequest && String(selectedRequest.status || "").toLowerCase() === "pending"
+                ? approvalDraftLines
+                : (selectedRequest.lines ?? [])
+              ).map((line, index) => {
+                const sourceLine =
+                  (selectedRequest.lines ?? []).find(
+                    (item) => Number(item.id) === Number(line.id)
+                  ) || line;
+                const product = sourceLine.product;
 
                 return (
-                <div key={line.id} className="rounded-xl bg-slate-50 p-4">
-                  <div className="font-semibold text-slate-800">
-                    {line.product?.name || "-"}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">
-                    Unité stock : {stockUnitLabel || "-"}
-                  </div>
+                  <div
+                    key={line.id || `${line.product_id}-${index}`}
+                    className="rounded-xl bg-slate-50 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-semibold text-slate-800">
+                          {product?.name || "-"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {product?.code || "Sans code"}
+                        </div>
+                      </div>
 
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500">
-                    <div>Demandé : {`${formatQty(line.requested_quantity)}${qtySuffix}`}</div>
-                    <div>
-                      Approuvé :{" "}
-                      {line.approved_quantity != null
-                        ? `${formatQty(line.approved_quantity)}${qtySuffix}`
-                        : "-"}
+                      <div className="rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700">
+                        Demandé : {formatQty(sourceLine.requested_quantity)}
+                      </div>
                     </div>
-                    <div>
-                      Expédié :{" "}
-                      {line.sent_quantity != null
-                        ? `${formatQty(line.sent_quantity)}${qtySuffix}`
-                        : "-"}
-                    </div>
-                    <div>
-                      Reçu :{" "}
-                      {line.received_quantity != null
-                        ? `${formatQty(line.received_quantity)}${qtySuffix}`
-                        : "-"}
-                    </div>
-                  </div>
 
-                  {line.notes && (
-                    <div className="mt-2 text-sm text-slate-600">{line.notes}</div>
-                  )}
-                </div>
+                    {canApproveRequest && String(selectedRequest.status || "").toLowerCase() === "pending" ? (
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[180px_1fr]">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">
+                            Quantité approuvée
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            className="w-full rounded-xl border p-3"
+                            value={line.approved_quantity}
+                            onChange={(e) =>
+                              updateApprovalLine(index, "approved_quantity", e.target.value)
+                            }
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateApprovalLine(
+                                index,
+                                "approved_quantity",
+                                String(sourceLine.requested_quantity ?? 0)
+                              )
+                            }
+                            className="mt-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700"
+                          >
+                            Reprendre quantité demandée
+                          </button>
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">
+                            Notes validation
+                          </label>
+                          <textarea
+                            className="min-h-[96px] w-full rounded-xl border p-3"
+                            value={line.notes || ""}
+                            onChange={(e) => updateApprovalLine(index, "notes", e.target.value)}
+                            placeholder="Ajustement éventuel du stock préparé, remarque, substitution..."
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500">
+                          <div>Demandé : {formatQty(sourceLine.requested_quantity)}</div>
+                          <div>
+                            Approuvé :{" "}
+                            {sourceLine.approved_quantity != null
+                              ? formatQty(sourceLine.approved_quantity)
+                              : "-"}
+                          </div>
+                          <div>
+                            Expédié :{" "}
+                            {sourceLine.sent_quantity != null
+                              ? formatQty(sourceLine.sent_quantity)
+                              : "-"}
+                          </div>
+                          <div>
+                            Reçu :{" "}
+                            {sourceLine.received_quantity != null
+                              ? formatQty(sourceLine.received_quantity)
+                              : "-"}
+                          </div>
+                        </div>
+
+                        {sourceLine.notes && (
+                          <div className="mt-2 text-sm text-slate-600">{sourceLine.notes}</div>
+                        )}
+                      </>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -980,11 +1081,22 @@ export default function InterSiteRequest() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Demandes inter-sites</h1>
-        <p className="text-slate-500">
-          Création, approbation et suivi des bons de transfert.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-800">Demandes inter-sites</h1>
+          <p className="text-slate-500">
+            Création, approbation et suivi des bons de transfert.
+          </p>
+        </div>
+
+        {pendingCount > 0 && (isGlobalApprover || isSourceManagerRole) && (
+          <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-xs font-bold text-white">
+              {pendingCount}
+            </span>
+            Demande(s) en attente de validation
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -1154,30 +1266,23 @@ export default function InterSiteRequest() {
                   </div>
                 )}
 
-                {filteredProducts.map((product) => {
-                  const stockUnitLabel = getStockUnitLabel(product);
-
-                  return (
-                    <button
-                      key={product.id}
-                      type="button"
-                      onClick={() => addProductToCart(product)}
-                      className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
-                    >
-                      <div className="font-semibold text-slate-800">{product.name}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {product.code || "Sans code"}
-                      </div>
-                      <div className="mt-2 text-xs text-slate-400">
-                        {product.category?.name || product.category_name || "Sans catégorie"}
-                      </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        Unité stock : {stockUnitLabel || "-"}
-                      </div>
-                      <div className="mt-3 text-sm text-blue-700">Ajouter au panier</div>
-                    </button>
-                  );
-                })}
+                {filteredProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => addProductToCart(product)}
+                    className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="font-semibold text-slate-800">{product.name}</div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {product.code || "Sans code"}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      {product.category?.name || product.category_name || "Sans catégorie"}
+                    </div>
+                    <div className="mt-3 text-sm text-blue-700">Ajouter au panier</div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1215,7 +1320,7 @@ export default function InterSiteRequest() {
         <div className="rounded-2xl bg-white p-5 shadow">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>
+              <div className="flex items-center gap-2"><h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>{pendingCount > 0 && (isGlobalApprover || isSourceManagerRole) && (<span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-xs font-bold text-white">{pendingCount}</span>)}</div>
               <p className="mt-1 text-sm text-slate-500">
                 Cliquez sur un BT pour ouvrir son détail.
               </p>
@@ -1319,18 +1424,14 @@ export default function InterSiteRequest() {
         Voir le panier ({cartLineCount})
       </button>
 
-      {/* Drawer panier non bloquant */}
+      {/* Drawer panier */}
       {cartOpen && (
-        <div
-          className={`fixed z-50 pointer-events-none ${
-            isMobile ? "inset-x-0 bottom-0 px-3 pb-3" : "inset-y-0 right-0 p-4"
-          }`}
-        >
+        <div className="fixed inset-0 z-50 bg-black/40">
           <div
-            className={`pointer-events-auto bg-white shadow-2xl ${
+            className={`absolute bg-white shadow-2xl ${
               isMobile
-                ? "max-h-[72vh] rounded-3xl border border-slate-200"
-                : "h-full w-full max-w-lg rounded-3xl border border-slate-200"
+                ? "bottom-0 left-0 right-0 max-h-[88vh] rounded-t-3xl"
+                : "bottom-0 right-0 top-0 w-full max-w-lg"
             }`}
           >
             <div className="flex items-center justify-between border-b p-4">
@@ -1338,9 +1439,6 @@ export default function InterSiteRequest() {
                 <h3 className="text-lg font-bold text-slate-800">Panier BT</h3>
                 <p className="text-sm text-slate-500">
                   {cartLineCount} ligne(s) • {formatQty(totalRequestedQty)} total
-                </p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Vous pouvez continuer à choisir des produits sans fermer ce panier.
                 </p>
               </div>
               <button
@@ -1352,7 +1450,7 @@ export default function InterSiteRequest() {
               </button>
             </div>
 
-            <div className={`space-y-3 overflow-y-auto p-4 ${isMobile ? "max-h-[calc(72vh-170px)]" : "max-h-[calc(100vh-190px)]"}`}>
+            <div className="max-h-[calc(100vh-170px)] space-y-3 overflow-y-auto p-4">
               {form.lines.filter((line) => line.product_id).length === 0 && (
                 <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
                   Aucun produit dans le panier.
@@ -1363,7 +1461,6 @@ export default function InterSiteRequest() {
                 const product = products.find(
                   (item) => Number(item.id) === Number(line.product_id)
                 );
-                const stockUnitLabel = getStockUnitLabel(product);
 
                 if (!line.product_id) return null;
 
@@ -1376,9 +1473,6 @@ export default function InterSiteRequest() {
                         </div>
                         <div className="mt-1 text-xs text-slate-500">
                           {product?.code || "Sans code"}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          Unité stock : {stockUnitLabel || "-"}
                         </div>
                       </div>
 
@@ -1437,7 +1531,7 @@ export default function InterSiteRequest() {
                 onClick={() => setCartOpen(false)}
                 className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white"
               >
-                Réduire / fermer le panier
+                Fermer le panier
               </button>
             </div>
           </div>
