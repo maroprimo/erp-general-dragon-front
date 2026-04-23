@@ -68,6 +68,8 @@ export default function ProductsCatalog() {
   const [editingId, setEditingId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const isEditing = editingId !== null;
 
@@ -82,6 +84,24 @@ export default function ProductsCatalog() {
     units.forEach((u) => map.set(Number(u.id), u));
     return map;
   }, [units]);
+
+  const totalPages = Math.max(1, Math.ceil(products.length / pageSize));
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return products.slice(start, start + pageSize);
+  }, [products, currentPage, pageSize]);
+
+  const pageNumbers = useMemo(() => {
+    const maxVisible = 5;
+    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [currentPage, totalPages]);
 
   const loadData = async () => {
     try {
@@ -103,6 +123,10 @@ export default function ProductsCatalog() {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    setCurrentPage((prev) => Math.min(prev, Math.max(1, Math.ceil(products.length / pageSize))));
+  }, [products.length, pageSize]);
 
   const resetForm = () => {
     setForm(INITIAL_FORM);
@@ -604,79 +628,230 @@ export default function ProductsCatalog() {
         </form>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        {products.map((product) => {
-          const imageUrl = buildProductImageUrl(product);
-          const category = categoryMap.get(Number(product.category_id));
-          const stockUnit = unitMap.get(Number(product.stock_unit_id));
+      <div className="rounded-2xl bg-white shadow">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Catalogue produits</h2>
+            <p className="text-sm text-slate-500">
+              {products.length} produit{products.length > 1 ? "s" : ""} • Affichage compact et paginé
+            </p>
+          </div>
 
-          return (
-            <div key={product.id} className="rounded-xl bg-white p-3 shadow">
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={product.name}
-                className="mb-2 h-28 w-full rounded-lg object-cover"
-              />
-            ) : (
-              <div className="mb-2 flex h-28 w-full items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">
-                Pas d’image
-              </div>
-            )}
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="text-sm text-slate-500">Par page</span>
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-              <div className="truncate text-sm font-semibold text-slate-800">
-                {product.name}
-              </div>
-              <div className="truncate text-xs text-slate-500">{product.code || "-"}</div>
+        <div className="hidden grid-cols-[88px_minmax(220px,2fr)_minmax(120px,1fr)_minmax(150px,1fr)_minmax(120px,0.9fr)_110px_92px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid">
+          <div>Image</div>
+          <div>Produit</div>
+          <div>Code</div>
+          <div>Catégorie</div>
+          <div>Unité stock</div>
+          <div>Statut</div>
+          <div className="text-right">Actions</div>
+        </div>
 
-              <div className="mt-2 space-y-1 text-[11px] text-slate-500">
-                <div>{category?.name || product.category?.name || "-"}</div>
-                <div>
-                  {product.origin || "-"} / {product.genre || "-"}
+        <div className="divide-y divide-slate-100">
+          {paginatedProducts.map((product) => {
+            const imageUrl = buildProductImageUrl(product);
+            const category = categoryMap.get(Number(product.category_id));
+            const stockUnit = unitMap.get(Number(product.stock_unit_id));
+
+            return (
+              <div
+                key={product.id}
+                className="px-3 py-3 transition hover:bg-slate-50 sm:px-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100 sm:h-[72px] sm:w-[72px]">
+                    {imageUrl ? (
+                      <img
+                        src={imageUrl}
+                        alt={product.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">
+                        Aucune image
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(220px,2fr)_minmax(120px,1fr)_minmax(150px,1fr)_minmax(120px,0.9fr)_110px_92px] lg:items-center">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-800 sm:text-base">
+                          {product.name}
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-500 sm:text-xs">
+                          <span className="rounded-full bg-slate-100 px-2 py-1">
+                            {product.origin || "-"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1">
+                            {product.genre || "-"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1">
+                            {product.nature || "-"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1">
+                            {product.cold_type || "-"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-sm text-slate-600">
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
+                          Code
+                        </span>
+                        {product.code || "-"}
+                      </div>
+
+                      <div className="text-sm text-slate-600">
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
+                          Catégorie
+                        </span>
+                        {category?.name || product.category?.name || "-"}
+                      </div>
+
+                      <div className="text-sm text-slate-600">
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
+                          Unité
+                        </span>
+                        {stockUnit?.name || product.stockUnit?.name || "-"}
+                      </div>
+
+                      <div>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                            product.is_active
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-slate-100 text-slate-600"
+                          }`}
+                        >
+                          {product.is_active ? "Actif" : "Inactif"}
+                        </span>
+                      </div>
+
+                      {canManage ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(product)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            title="Modifier"
+                            aria-label={`Modifier ${product.name}`}
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
+                              <path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zm17.71-10.04a1.003 1.003 0 0 0 0-1.42l-2.5-2.5a1.003 1.003 0 0 0-1.42 0L14.96 5.12l3.75 3.75 1.99-1.66z" />
+                            </svg>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(product)}
+                            disabled={deletingId === product.id}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
+                            title="Supprimer"
+                            aria-label={`Supprimer ${product.name}`}
+                          >
+                            {deletingId === product.id ? (
+                              <span className="text-xs font-bold">...</span>
+                            ) : (
+                              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
+                                <path d="M6 7h12l-1 14H7L6 7zm3-3h6l1 2h4v2H4V6h4l1-2z" />
+                              </svg>
+                            )}
+                          </button>
+                        </div>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  {product.nature || "-"} / {product.cold_type || "-"}
-                </div>
-                <div>
-                  Unité stock : {stockUnit?.name || product.stockUnit?.name || "-"}
-                </div>
               </div>
+            );
+          })}
 
-              <div className="mt-2">
-                <span
-                  className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
-                    product.is_active
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-slate-100 text-slate-600"
-                  }`}
-                >
-                  {product.is_active ? "Actif" : "Inactif"}
-                </span>
-              </div>
-
-              {canManage && (
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleEdit(product)}
-                    className="flex-1 rounded-lg bg-blue-600 px-2 py-2 text-xs text-white"
-                  >
-                    Éditer
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(product)}
-                    disabled={deletingId === product.id}
-                    className="flex-1 rounded-lg bg-red-600 px-2 py-2 text-xs text-white disabled:opacity-60"
-                  >
-                    {deletingId === product.id ? "..." : "Suppr."}
-                  </button>
-                </div>
-              )}
+          {paginatedProducts.length === 0 && (
+            <div className="p-6 text-center text-sm text-slate-500">
+              Aucun produit à afficher.
             </div>
-          );
-        })}
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-slate-500">
+            Affichage {(currentPage - 1) * pageSize + (paginatedProducts.length ? 1 : 0)} à{" "}
+            {(currentPage - 1) * pageSize + paginatedProducts.length} sur {products.length}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              «
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Préc.
+            </button>
+
+            {pageNumbers.map((page) => (
+              <button
+                key={page}
+                type="button"
+                onClick={() => setCurrentPage(page)}
+                className={`min-w-[40px] rounded-lg px-3 py-2 text-sm font-medium ${
+                  currentPage === page
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-200 text-slate-600"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Suiv.
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              »
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
