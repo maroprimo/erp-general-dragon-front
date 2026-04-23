@@ -245,7 +245,7 @@ export default function KitchenIssues() {
   }, []);
 
   useEffect(() => {
-    if (cartOpen || detailOpen) {
+    if (detailOpen) {
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = "";
@@ -256,7 +256,7 @@ export default function KitchenIssues() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [cartOpen, detailOpen]);
+  }, [detailOpen]);
 
   const effectiveUnits = useMemo(() => {
     return fullUnits.length > 0 ? fullUnits : hookUnits;
@@ -889,7 +889,6 @@ export default function KitchenIssues() {
       };
     });
 
-    setCartOpen(true);
   };
 
   const handleDisplayQuantityChange = (index, value) => {
@@ -1856,9 +1855,9 @@ export default function KitchenIssues() {
 
       {/* Drawer panier */}
       {cartOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40">
+        <div className="fixed inset-0 z-50 pointer-events-none">
           <div
-            className={`absolute bg-white shadow-2xl ${
+            className={`pointer-events-auto absolute bg-white shadow-2xl ${
               isMobile
                 ? "bottom-0 left-0 right-0 max-h-[90vh] rounded-t-3xl"
                 : "bottom-0 right-0 top-0 w-full max-w-xl"

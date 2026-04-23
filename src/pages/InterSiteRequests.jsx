@@ -78,12 +78,14 @@ export default function InterSiteRequest() {
     sites: hookSites = [],
     warehouses: hookWarehouses = [],
     products: hookProducts = [],
+    units: hookUnits = [],
     loading: hookRefsLoading,
   } = useReferences() || {};
 
   const [sites, setSites] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
+  const [units, setUnits] = useState([]);
 
   const [refsLoading, setRefsLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(true);
@@ -161,7 +163,7 @@ export default function InterSiteRequest() {
   }, []);
 
   useEffect(() => {
-    if (cartOpen || detailOpen) {
+    if (detailOpen) {
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = "";
@@ -172,13 +174,14 @@ export default function InterSiteRequest() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [cartOpen, detailOpen]);
+  }, [detailOpen]);
 
   const loadReferenceFallbacks = async () => {
     try {
       let finalSites = Array.isArray(hookSites) ? hookSites : [];
       let finalWarehouses = Array.isArray(hookWarehouses) ? hookWarehouses : [];
       let finalProducts = Array.isArray(hookProducts) ? hookProducts : [];
+      let finalUnits = Array.isArray(hookUnits) ? hookUnits : [];
 
       if (finalSites.length === 0) {
         const siteCandidates = ["/references/sites", "/sites"];
@@ -224,9 +227,24 @@ export default function InterSiteRequest() {
         }
       }
 
+      if (finalUnits.length === 0) {
+        const unitCandidates = ["/references/units", "/units"];
+        for (const url of unitCandidates) {
+          try {
+            const res = await api.get(url);
+            const rows = extractCollection(res.data);
+            if (rows.length > 0) {
+              finalUnits = rows;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
       setSites(finalSites);
       setWarehouses(finalWarehouses);
       setProducts(finalProducts);
+      setUnits(finalUnits);
 
       if (
         finalSites.length === 0 ||
@@ -490,6 +508,30 @@ export default function InterSiteRequest() {
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [products]);
+
+  const unitsById = useMemo(() => {
+    const map = new Map();
+    (units || []).forEach((unit) => {
+      map.set(Number(unit.id), unit);
+    });
+    return map;
+  }, [units]);
+
+  const getStockUnitLabel = (product) => {
+    if (!product) return "";
+
+    return (
+      product.stock_unit?.symbol ||
+      product.stock_unit?.name ||
+      product.unit?.symbol ||
+      product.unit?.name ||
+      product.stock_unit_name ||
+      product.unit_name ||
+      unitsById.get(Number(product.stock_unit_id))?.symbol ||
+      unitsById.get(Number(product.stock_unit_id))?.name ||
+      ""
+    );
+  };
 
   const filteredProducts = useMemo(() => {
     let rows = [...(products || [])];
@@ -875,30 +917,37 @@ export default function InterSiteRequest() {
             <h3 className="mb-3 font-semibold text-slate-800">Lignes</h3>
 
             <div className="space-y-3">
-              {(selectedRequest.lines ?? []).map((line) => (
+              {(selectedRequest.lines ?? []).map((line) => {
+                const stockUnitLabel = getStockUnitLabel(line.product);
+                const qtySuffix = stockUnitLabel ? ` ${stockUnitLabel}` : "";
+
+                return (
                 <div key={line.id} className="rounded-xl bg-slate-50 p-4">
                   <div className="font-semibold text-slate-800">
                     {line.product?.name || "-"}
                   </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    Unité stock : {stockUnitLabel || "-"}
+                  </div>
 
                   <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500">
-                    <div>Demandé : {formatQty(line.requested_quantity)}</div>
+                    <div>Demandé : {`${formatQty(line.requested_quantity)}${qtySuffix}`}</div>
                     <div>
                       Approuvé :{" "}
                       {line.approved_quantity != null
-                        ? formatQty(line.approved_quantity)
+                        ? `${formatQty(line.approved_quantity)}${qtySuffix}`
                         : "-"}
                     </div>
                     <div>
                       Expédié :{" "}
                       {line.sent_quantity != null
-                        ? formatQty(line.sent_quantity)
+                        ? `${formatQty(line.sent_quantity)}${qtySuffix}`
                         : "-"}
                     </div>
                     <div>
                       Reçu :{" "}
                       {line.received_quantity != null
-                        ? formatQty(line.received_quantity)
+                        ? `${formatQty(line.received_quantity)}${qtySuffix}`
                         : "-"}
                     </div>
                   </div>
@@ -907,7 +956,8 @@ export default function InterSiteRequest() {
                     <div className="mt-2 text-sm text-slate-600">{line.notes}</div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -1104,23 +1154,30 @@ export default function InterSiteRequest() {
                   </div>
                 )}
 
-                {filteredProducts.map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => addProductToCart(product)}
-                    className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
-                  >
-                    <div className="font-semibold text-slate-800">{product.name}</div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {product.code || "Sans code"}
-                    </div>
-                    <div className="mt-2 text-xs text-slate-400">
-                      {product.category?.name || product.category_name || "Sans catégorie"}
-                    </div>
-                    <div className="mt-3 text-sm text-blue-700">Ajouter au panier</div>
-                  </button>
-                ))}
+                {filteredProducts.map((product) => {
+                  const stockUnitLabel = getStockUnitLabel(product);
+
+                  return (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => addProductToCart(product)}
+                      className="rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-slate-50"
+                    >
+                      <div className="font-semibold text-slate-800">{product.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {product.code || "Sans code"}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-400">
+                        {product.category?.name || product.category_name || "Sans catégorie"}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Unité stock : {stockUnitLabel || "-"}
+                      </div>
+                      <div className="mt-3 text-sm text-blue-700">Ajouter au panier</div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -1262,14 +1319,18 @@ export default function InterSiteRequest() {
         Voir le panier ({cartLineCount})
       </button>
 
-      {/* Drawer panier */}
+      {/* Drawer panier non bloquant */}
       {cartOpen && (
-        <div className="fixed inset-0 z-50 bg-black/40">
+        <div
+          className={`fixed z-50 pointer-events-none ${
+            isMobile ? "inset-x-0 bottom-0 px-3 pb-3" : "inset-y-0 right-0 p-4"
+          }`}
+        >
           <div
-            className={`absolute bg-white shadow-2xl ${
+            className={`pointer-events-auto bg-white shadow-2xl ${
               isMobile
-                ? "bottom-0 left-0 right-0 max-h-[88vh] rounded-t-3xl"
-                : "bottom-0 right-0 top-0 w-full max-w-lg"
+                ? "max-h-[72vh] rounded-3xl border border-slate-200"
+                : "h-full w-full max-w-lg rounded-3xl border border-slate-200"
             }`}
           >
             <div className="flex items-center justify-between border-b p-4">
@@ -1277,6 +1338,9 @@ export default function InterSiteRequest() {
                 <h3 className="text-lg font-bold text-slate-800">Panier BT</h3>
                 <p className="text-sm text-slate-500">
                   {cartLineCount} ligne(s) • {formatQty(totalRequestedQty)} total
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Vous pouvez continuer à choisir des produits sans fermer ce panier.
                 </p>
               </div>
               <button
@@ -1288,7 +1352,7 @@ export default function InterSiteRequest() {
               </button>
             </div>
 
-            <div className="max-h-[calc(100vh-170px)] space-y-3 overflow-y-auto p-4">
+            <div className={`space-y-3 overflow-y-auto p-4 ${isMobile ? "max-h-[calc(72vh-170px)]" : "max-h-[calc(100vh-190px)]"}`}>
               {form.lines.filter((line) => line.product_id).length === 0 && (
                 <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
                   Aucun produit dans le panier.
@@ -1299,6 +1363,7 @@ export default function InterSiteRequest() {
                 const product = products.find(
                   (item) => Number(item.id) === Number(line.product_id)
                 );
+                const stockUnitLabel = getStockUnitLabel(product);
 
                 if (!line.product_id) return null;
 
@@ -1311,6 +1376,9 @@ export default function InterSiteRequest() {
                         </div>
                         <div className="mt-1 text-xs text-slate-500">
                           {product?.code || "Sans code"}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Unité stock : {stockUnitLabel || "-"}
                         </div>
                       </div>
 
@@ -1369,7 +1437,7 @@ export default function InterSiteRequest() {
                 onClick={() => setCartOpen(false)}
                 className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white"
               >
-                Fermer le panier
+                Réduire / fermer le panier
               </button>
             </div>
           </div>

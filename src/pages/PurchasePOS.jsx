@@ -350,6 +350,11 @@ function CartPanel({
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-slate-800">{line.name}</div>
                   <div className="text-xs text-slate-500">{line.code}</div>
+                  {line.purchase_unit_label && (
+                    <div className="mt-1 text-xs text-slate-500">
+                      Unité achat : {line.purchase_unit_label}
+                    </div>
+                  )}
                   <div className="mt-1 text-xs text-slate-500">
                     Dernier achat : {formatMoney(Number(line.last_purchase_price ?? 0))} Ar
                   </div>
@@ -478,6 +483,30 @@ export default function PurchasePOS() {
       (warehouse) => Number(warehouse.site_id) === Number(effectiveSiteId)
     );
   }, [warehouses, header.site_id, user]);
+
+  const unitsById = useMemo(() => {
+    const map = new Map();
+    (units ?? []).forEach((unit) => {
+      map.set(Number(unit.id), unit);
+    });
+    return map;
+  }, [units]);
+
+  const getPurchaseUnitLabel = (product) => {
+    if (!product) return "";
+
+    return (
+      product.purchase_unit?.symbol ||
+      product.purchase_unit?.name ||
+      product.unit?.symbol ||
+      product.unit?.name ||
+      product.purchase_unit_name ||
+      product.unit_name ||
+      unitsById.get(Number(product.purchase_unit_id))?.symbol ||
+      unitsById.get(Number(product.purchase_unit_id))?.name ||
+      ""
+    );
+  };
 
   const totalAmount = useMemo(() => {
     return cart.reduce((sum, line) => {
@@ -625,6 +654,8 @@ export default function PurchasePOS() {
           product_id: product.id,
           code: product.code,
           name: product.name,
+          purchase_unit_id: product.purchase_unit_id ?? null,
+          purchase_unit_label: getPurchaseUnitLabel(product),
           quantity: 1,
           unit_price: Number(product.last_purchase_price ?? 0),
           last_purchase_price: Number(product.last_purchase_price ?? 0),
