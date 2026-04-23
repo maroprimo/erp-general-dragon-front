@@ -458,7 +458,7 @@ export default function ProductsCatalog() {
 
           <select
             className="rounded-xl border p-3"
-            required
+            
             value={form.product_type}
             onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
           >
@@ -577,7 +577,7 @@ export default function ProductsCatalog() {
 
           <select
             className="rounded-xl border p-3"
-            required
+            
             value={form.valuation_method}
             onChange={(e) =>
               setForm((p) => ({ ...p, valuation_method: e.target.value }))
