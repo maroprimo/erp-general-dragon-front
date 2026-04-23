@@ -53,6 +53,100 @@ function buildProductImageUrl(product) {
   return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
 }
 
+function getPaginationInfo(payload) {
+  const root = payload?.data ?? payload;
+  const nested = root?.data;
+
+  const currentPage = Number(
+    root?.current_page ?? nested?.current_page ?? 1
+  );
+
+  const lastPage = Number(
+    root?.last_page ?? nested?.last_page ?? 1
+  );
+
+  const perPage = Number(
+    root?.per_page ?? nested?.per_page ?? 0
+  );
+
+  const total = Number(
+    root?.total ?? nested?.total ?? 0
+  );
+
+  const nextPageUrl = root?.next_page_url ?? nested?.next_page_url ?? null;
+
+  return {
+    currentPage: Number.isFinite(currentPage) && currentPage > 0 ? currentPage : 1,
+    lastPage: Number.isFinite(lastPage) && lastPage > 0 ? lastPage : 1,
+    perPage: Number.isFinite(perPage) && perPage > 0 ? perPage : 0,
+    total: Number.isFinite(total) && total >= 0 ? total : 0,
+    nextPageUrl,
+  };
+}
+
+async function fetchAllCatalogProducts() {
+  const perPage = 100;
+  const firstRes = await api.get("/products-catalog", {
+    params: { page: 1, per_page: perPage },
+  });
+
+  const firstItems = asArray(firstRes.data);
+  const pageInfo = getPaginationInfo(firstRes.data);
+
+  if (pageInfo.lastPage <= 1 && pageInfo.total <= firstItems.length) {
+    return firstItems;
+  }
+
+  const collected = [...firstItems];
+  const seenIds = new Set(firstItems.map((item) => item?.id).filter(Boolean));
+
+  for (let page = 2; page <= pageInfo.lastPage; page += 1) {
+    const res = await api.get("/products-catalog", {
+      params: { page, per_page: perPage },
+    });
+    const items = asArray(res.data);
+
+    items.forEach((item) => {
+      const itemId = item?.id;
+      if (itemId && seenIds.has(itemId)) return;
+      if (itemId) seenIds.add(itemId);
+      collected.push(item);
+    });
+  }
+
+  if (pageInfo.total > 0 && collected.length >= pageInfo.total) {
+    return collected;
+  }
+
+  let safety = 0;
+  let currentPage = pageInfo.lastPage;
+  let nextPageUrl = pageInfo.nextPageUrl;
+
+  while (nextPageUrl && safety < 50) {
+    safety += 1;
+    currentPage += 1;
+
+    const res = await api.get("/products-catalog", {
+      params: { page: currentPage, per_page: perPage },
+    });
+
+    const items = asArray(res.data);
+    if (!items.length) break;
+
+    items.forEach((item) => {
+      const itemId = item?.id;
+      if (itemId && seenIds.has(itemId)) return;
+      if (itemId) seenIds.add(itemId);
+      collected.push(item);
+    });
+
+    const info = getPaginationInfo(res.data);
+    nextPageUrl = info.nextPageUrl;
+  }
+
+  return collected;
+}
+
 export default function ProductsCatalog() {
   const { user } = useAuth();
   const { suppliers, units, loading } = useReferences();
@@ -70,6 +164,9 @@ export default function ProductsCatalog() {
   const [deletingId, setDeletingId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterCategoryId, setFilterCategoryId] = useState("");
+  const [filterUnitId, setFilterUnitId] = useState("");
 
   const isEditing = editingId !== null;
 
@@ -85,11 +182,33 @@ export default function ProductsCatalog() {
     return map;
   }, [units]);
 
-  const totalPages = Math.max(1, Math.ceil(products.length / pageSize));
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        [product.name, product.short_name, product.code, product.barcode]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+
+      const matchesCategory =
+        !filterCategoryId || String(product.category_id ?? "") === String(filterCategoryId);
+
+      const matchesUnit =
+        !filterUnitId ||
+        String(product.stock_unit_id ?? "") === String(filterUnitId) ||
+        String(product.purchase_unit_id ?? "") === String(filterUnitId);
+
+      return matchesSearch && matchesCategory && matchesUnit;
+    });
+  }, [products, searchTerm, filterCategoryId, filterUnitId]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
   const paginatedProducts = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
-    return products.slice(start, start + pageSize);
-  }, [products, currentPage, pageSize]);
+    return filteredProducts.slice(start, start + pageSize);
+  }, [filteredProducts, currentPage, pageSize]);
 
   const pageNumbers = useMemo(() => {
     const maxVisible = 5;
@@ -105,15 +224,15 @@ export default function ProductsCatalog() {
 
   const loadData = async () => {
     try {
-      const [catRes, locRes, prodRes] = await Promise.all([
+      const [catRes, locRes, allProducts] = await Promise.all([
         api.get("/references/categories"),
         api.get("/storage-zones"),
-        api.get("/products-catalog"),
+        fetchAllCatalogProducts(),
       ]);
 
       setCategories(asArray(catRes.data));
       setLocations(asArray(locRes.data));
-      setProducts(asArray(prodRes.data));
+      setProducts(allProducts);
     } catch (err) {
       console.error(err);
       toast.error("Erreur de chargement des produits");
@@ -125,8 +244,14 @@ export default function ProductsCatalog() {
   }, []);
 
   useEffect(() => {
-    setCurrentPage((prev) => Math.min(prev, Math.max(1, Math.ceil(products.length / pageSize))));
-  }, [products.length, pageSize]);
+    setCurrentPage((prev) =>
+      Math.min(prev, Math.max(1, Math.ceil(filteredProducts.length / pageSize)))
+    );
+  }, [filteredProducts.length, pageSize]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filterCategoryId, filterUnitId]);
 
   const resetForm = () => {
     setForm(INITIAL_FORM);
@@ -629,38 +754,78 @@ export default function ProductsCatalog() {
       </div>
 
       <div className="rounded-2xl bg-white shadow">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">Catalogue produits</h2>
-            <p className="text-sm text-slate-500">
-              {products.length} produit{products.length > 1 ? "s" : ""} • Affichage compact et paginé
-            </p>
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Catalogue produits</h2>
+              <p className="text-sm text-slate-500">
+                {filteredProducts.length} résultat{filteredProducts.length > 1 ? "s" : ""}
+                {" "}sur {products.length} produit{products.length > 1 ? "s" : ""} • Affichage compact et paginé
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <span className="text-sm text-slate-500">Par page</span>
+              <select
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+              >
+                {[10, 25, 50, 100].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <span className="text-sm text-slate-500">Par page</span>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(240px,1.4fr)_minmax(180px,1fr)_minmax(180px,1fr)]">
+            <input
+              type="text"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+              placeholder="Rechercher par nom, nom court, code ou code-barres"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+
             <select
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setCurrentPage(1);
-              }}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+              value={filterCategoryId}
+              onChange={(e) => setFilterCategoryId(e.target.value)}
             >
-              {[10, 25, 50, 100].map((size) => (
-                <option key={size} value={size}>
-                  {size}
+              <option value="">Toutes les catégories</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+              value={filterUnitId}
+              onChange={(e) => setFilterUnitId(e.target.value)}
+            >
+              <option value="">Toutes les unités</option>
+              {units.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
                 </option>
               ))}
             </select>
           </div>
         </div>
 
-        <div className="hidden grid-cols-[88px_minmax(220px,2fr)_minmax(120px,1fr)_minmax(150px,1fr)_minmax(120px,0.9fr)_110px_92px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:grid">
+        <div className="hidden grid-cols-[72px_minmax(180px,2fr)_minmax(96px,0.9fr)_minmax(120px,1fr)_minmax(100px,0.85fr)_minmax(100px,0.85fr)_88px_84px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 xl:grid">
           <div>Image</div>
           <div>Produit</div>
           <div>Code</div>
           <div>Catégorie</div>
+          <div>Unité achat</div>
           <div>Unité stock</div>
           <div>Statut</div>
           <div className="text-right">Actions</div>
@@ -670,6 +835,7 @@ export default function ProductsCatalog() {
           {paginatedProducts.map((product) => {
             const imageUrl = buildProductImageUrl(product);
             const category = categoryMap.get(Number(product.category_id));
+            const purchaseUnit = unitMap.get(Number(product.purchase_unit_id));
             const stockUnit = unitMap.get(Number(product.stock_unit_id));
 
             return (
@@ -693,7 +859,7 @@ export default function ProductsCatalog() {
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(220px,2fr)_minmax(120px,1fr)_minmax(150px,1fr)_minmax(120px,0.9fr)_110px_92px] lg:items-center">
+                    <div className="flex flex-col gap-3 xl:grid xl:grid-cols-[minmax(180px,2fr)_minmax(96px,0.9fr)_minmax(120px,1fr)_minmax(100px,0.85fr)_minmax(100px,0.85fr)_88px_84px] xl:items-center">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-800 sm:text-base">
                           {product.name}
@@ -715,22 +881,29 @@ export default function ProductsCatalog() {
                       </div>
 
                       <div className="text-sm text-slate-600">
-                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 xl:hidden">
                           Code
                         </span>
                         {product.code || "-"}
                       </div>
 
                       <div className="text-sm text-slate-600">
-                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 xl:hidden">
                           Catégorie
                         </span>
                         {category?.name || product.category?.name || "-"}
                       </div>
 
                       <div className="text-sm text-slate-600">
-                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 lg:hidden">
-                          Unité
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 xl:hidden">
+                          Unité achat
+                        </span>
+                        {purchaseUnit?.name || product.purchaseUnit?.name || "-"}
+                      </div>
+
+                      <div className="text-sm text-slate-600">
+                        <span className="mr-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400 xl:hidden">
+                          Unité stock
                         </span>
                         {stockUnit?.name || product.stockUnit?.name || "-"}
                       </div>
@@ -748,11 +921,11 @@ export default function ProductsCatalog() {
                       </div>
 
                       {canManage ? (
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex shrink-0 items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => handleEdit(product)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 text-white transition hover:bg-blue-700"
                             title="Modifier"
                             aria-label={`Modifier ${product.name}`}
                           >
@@ -765,7 +938,7 @@ export default function ProductsCatalog() {
                             type="button"
                             onClick={() => handleDelete(product)}
                             disabled={deletingId === product.id}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-60"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"
                             title="Supprimer"
                             aria-label={`Supprimer ${product.name}`}
                           >
@@ -790,7 +963,7 @@ export default function ProductsCatalog() {
 
           {paginatedProducts.length === 0 && (
             <div className="p-6 text-center text-sm text-slate-500">
-              Aucun produit à afficher.
+              Aucun produit à afficher pour ces critères.
             </div>
           )}
         </div>
@@ -798,7 +971,7 @@ export default function ProductsCatalog() {
         <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-slate-500">
             Affichage {(currentPage - 1) * pageSize + (paginatedProducts.length ? 1 : 0)} à{" "}
-            {(currentPage - 1) * pageSize + paginatedProducts.length} sur {products.length}
+            {(currentPage - 1) * pageSize + paginatedProducts.length} sur {filteredProducts.length}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
