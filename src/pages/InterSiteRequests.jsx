@@ -71,6 +71,151 @@ function isStandaloneMode() {
   );
 }
 
+
+function buildSpaPageUrl(page, extraParams = {}) {
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.search);
+
+  params.set("page", page);
+  params.delete("open_page");
+
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+  });
+
+  return `${url.origin}${url.pathname}?${params.toString()}`;
+}
+
+function buildScanUrl(issue) {
+  return buildSpaPageUrl("TransferScanMobile", {
+    scan_token: issue?.qr_token || "",
+  });
+}
+
+function normalizeQty(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function getTodayYmd() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function pickFirstNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function resolveStockRowProductId(row) {
+  return pickFirstNumber(
+    row?.product_id,
+    row?.productId,
+    row?.product?.id,
+    row?.item_id,
+    row?.item?.id,
+    row?.inventory_item_id,
+    row?.stock_item_id,
+    row?.id
+  );
+}
+
+function resolveStockUnitLabel(product) {
+  return (
+    product?.stock_unit?.symbol ||
+    product?.stock_unit?.short_name ||
+    product?.stock_unit?.name ||
+    product?.stockUnit?.symbol ||
+    product?.stockUnit?.short_name ||
+    product?.stockUnit?.name ||
+    product?.unit_of_measure?.symbol ||
+    product?.unit_of_measure?.name ||
+    product?.unit?.symbol ||
+    product?.unit?.name ||
+    ""
+  );
+}
+
+function resolveAvailableStock(product, { siteId, warehouseId } = {}) {
+  if (!product) return null;
+
+  const levels =
+    product?.stock_levels ||
+    product?.stockLevels ||
+    product?.warehouse_stocks ||
+    product?.warehouseStocks ||
+    product?.inventories ||
+    product?.inventory_levels ||
+    [];
+
+  if (Array.isArray(levels) && levels.length > 0) {
+    const normalizedLevels = levels.filter((level) => {
+      const levelWarehouseId = Number(
+        level?.warehouse_id ?? level?.warehouse?.id ?? level?.warehouseId ?? 0
+      );
+      const levelSiteId = Number(
+        level?.site_id ??
+          level?.site?.id ??
+          level?.warehouse?.site_id ??
+          level?.warehouse?.site?.id ??
+          level?.siteId ??
+          0
+      );
+
+      if (warehouseId && levelWarehouseId) {
+        return levelWarehouseId === Number(warehouseId);
+      }
+
+      if (siteId && levelSiteId) {
+        return levelSiteId === Number(siteId);
+      }
+
+      return true;
+    });
+
+    const source = normalizedLevels.length > 0 ? normalizedLevels : levels;
+    const total = source.reduce((sum, level) => {
+      const qty = pickFirstNumber(
+        level?.quantity_available,
+        level?.available_quantity,
+        level?.qty_available,
+        level?.available,
+        level?.quantity_on_hand,
+        level?.on_hand_quantity,
+        level?.stock_quantity,
+        level?.quantity,
+        level?.qty,
+        level?.balance,
+        level?.current_stock
+      );
+      return sum + (qty ?? 0);
+    }, 0);
+
+    return total;
+  }
+
+  return pickFirstNumber(
+    product?.quantity_available,
+    product?.available_quantity,
+    product?.qty_available,
+    product?.available,
+    product?.quantity_on_hand,
+    product?.on_hand_quantity,
+    product?.stock_quantity,
+    product?.quantity,
+    product?.qty,
+    product?.balance,
+    product?.current_stock
+  );
+}
+
 export default function InterSiteRequest() {
   const { user } = useAuth();
 
@@ -84,14 +229,14 @@ export default function InterSiteRequest() {
   const [sites, setSites] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
+  const [sourceStockRows, setSourceStockRows] = useState(new Map());
+  const [sourceStockLoading, setSourceStockLoading] = useState(false);
 
   const [refsLoading, setRefsLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
-  const [approvalDraftLines, setApprovalDraftLines] = useState([]);
 
   const [requests, setRequests] = useState([]);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -163,7 +308,7 @@ export default function InterSiteRequest() {
   }, []);
 
   useEffect(() => {
-    if (cartOpen || detailOpen) {
+    if (detailOpen) {
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = "";
@@ -174,7 +319,7 @@ export default function InterSiteRequest() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [cartOpen, detailOpen]);
+  }, [detailOpen]);
 
   const loadReferenceFallbacks = async () => {
     try {
@@ -245,6 +390,44 @@ export default function InterSiteRequest() {
     }
   };
 
+  const loadSourceStock = async () => {
+    if (!form.from_site_id) {
+      setSourceStockRows(new Map());
+      return;
+    }
+
+    try {
+      setSourceStockLoading(true);
+
+      const params = {
+        site_id: form.from_site_id,
+        report_date: getTodayYmd(),
+      };
+
+      if (form.from_warehouse_id) {
+        params.warehouse_id = form.from_warehouse_id;
+      }
+
+      const res = await api.get("/stock-levels", { params });
+      const rows = extractCollection(res.data);
+      const map = new Map();
+
+      rows.forEach((row) => {
+        const resolvedProductId = resolveStockRowProductId(row);
+        if (resolvedProductId != null) {
+          map.set(Number(resolvedProductId), row);
+        }
+      });
+
+      setSourceStockRows(map);
+    } catch (err) {
+      console.error("Erreur chargement stock expéditeur:", err);
+      setSourceStockRows(new Map());
+    } finally {
+      setSourceStockLoading(false);
+    }
+  };
+
   const loadRequests = async () => {
     try {
       setRequestsLoading(true);
@@ -259,17 +442,6 @@ export default function InterSiteRequest() {
     }
   };
 
-  const loadPendingCount = async () => {
-    try {
-      const res = await api.get("/inter-site-requests/pending-count");
-      const count = Number(res?.data?.count || 0);
-      setPendingCount(Number.isFinite(count) ? count : 0);
-    } catch (err) {
-      console.error(err);
-      setPendingCount(0);
-    }
-  };
-
   const openRequest = async (id) => {
     if (!id) return;
 
@@ -277,20 +449,7 @@ export default function InterSiteRequest() {
       setDetailLoading(true);
       setDetailOpen(true);
       const res = await api.get(`/inter-site-requests/${id}`);
-      const requestItem = extractItem(res.data);
-      setSelectedRequest(requestItem);
-      setApprovalDraftLines(
-        (requestItem?.lines || []).map((line) => ({
-          id: line.id,
-          product_id: line.product_id,
-          requested_quantity: line.requested_quantity,
-          approved_quantity:
-            line.approved_quantity != null
-              ? String(line.approved_quantity)
-              : String(line.requested_quantity ?? 0),
-          notes: line.notes || "",
-        }))
-      );
+      setSelectedRequest(extractItem(res.data));
     } catch (err) {
       console.error(err);
       toast.error("Impossible d’ouvrir ce BT");
@@ -302,7 +461,6 @@ export default function InterSiteRequest() {
 
   useEffect(() => {
     loadRequests();
-    loadPendingCount();
   }, []);
 
   useEffect(() => {
@@ -311,14 +469,6 @@ export default function InterSiteRequest() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hookRefsLoading]);
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      loadPendingCount();
-    }, 30000);
-
-    return () => window.clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (refsLoading) return;
@@ -333,6 +483,11 @@ export default function InterSiteRequest() {
       return next;
     });
   }, [refsLoading, user?.site_id]);
+
+  useEffect(() => {
+    loadSourceStock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.from_site_id, form.from_warehouse_id]);
 
   const sourceWarehouses = useMemo(() => {
     if (!form.from_site_id) return [];
@@ -427,10 +582,10 @@ export default function InterSiteRequest() {
     (isGlobalApprover || (isSourceManagerRole && userSiteId === selectedFromSiteId));
 
   const transferScanUrl = useMemo(() => {
-    if (selectedRequest?.qr_scan_url) return selectedRequest.qr_scan_url;
-    if (!selectedRequest?.qr_token) return "";
-    return `${backendWebWithIndex}/scan-transfer/${selectedRequest.qr_token}`;
-  }, [selectedRequest, backendWebWithIndex]);
+    if (!selectedRequest) return "";
+    if (selectedRequest?.qr_token) return buildScanUrl(selectedRequest);
+    return selectedRequest?.qr_scan_url || selectedRequest?.scan_url || "";
+  }, [selectedRequest]);
 
   const transferQrImageUrl = useMemo(() => {
     if (!selectedRequest?.qr_token) return "";
@@ -598,7 +753,6 @@ export default function InterSiteRequest() {
       };
     });
 
-    setCartOpen(true);
   };
 
   const decrementLine = (index) => {
@@ -617,18 +771,6 @@ export default function InterSiteRequest() {
     const line = form.lines[index];
     const qty = Number(line?.requested_quantity || 0);
     updateLine(index, "requested_quantity", String((qty || 0) + 1));
-  };
-
-
-  const updateApprovalLine = (index, field, value) => {
-    setApprovalDraftLines((prev) => {
-      const lines = [...prev];
-      lines[index] = {
-        ...lines[index],
-        [field]: value,
-      };
-      return lines;
-    });
   };
 
   const createRequest = async () => {
@@ -684,7 +826,6 @@ export default function InterSiteRequest() {
 
       toast.success(res.data?.message || "BT créé");
       await loadRequests();
-      await loadPendingCount();
 
       if (created?.id) {
         await openRequest(created.id);
@@ -702,40 +843,16 @@ export default function InterSiteRequest() {
   const approveRequest = async () => {
     if (!selectedRequest?.id) return;
 
-    const payload = {
-      lines: (approvalDraftLines || []).map((line) => ({
-        id: Number(line.id),
-        approved_quantity: Number(line.approved_quantity || 0),
-        notes: line.notes || "",
-      })),
-    };
-
-    const invalidLine = payload.lines.find(
-      (line) => !Number.isFinite(line.approved_quantity) || line.approved_quantity < 0
-    );
-
-    if (!payload.lines.length) {
-      toast.error("Aucune ligne à approuver");
-      return;
-    }
-
-    if (invalidLine) {
-      toast.error("Les quantités approuvées doivent être supérieures ou égales à 0");
-      return;
-    }
-
     try {
       setApproving(true);
 
       const res = await api.post(
-        `/inter-site-requests/${selectedRequest.id}/approve`,
-        payload
+        `/inter-site-requests/${selectedRequest.id}/approve`
       );
 
       toast.success(res.data?.message || "Bon de transfert approuvé");
 
       await loadRequests();
-      await loadPendingCount();
       await openRequest(selectedRequest.id);
     } catch (err) {
       console.error(err);
@@ -745,11 +862,63 @@ export default function InterSiteRequest() {
     }
   };
 
+  const getKnownAvailableQty = (productId) => {
+    const row = sourceStockRows.get(Number(productId));
+    if (!row) return null;
+
+    return pickFirstNumber(
+      row?.quantity_available,
+      row?.available_quantity,
+      row?.qty_available,
+      row?.available,
+      row?.quantity_on_hand,
+      row?.on_hand_quantity,
+      row?.stock_quantity,
+      row?.quantity,
+      row?.qty,
+      row?.balance,
+      row?.current_stock
+    );
+  };
+
   const cartLineCount = form.lines.filter((line) => line.product_id).length;
   const totalRequestedQty = form.lines.reduce(
     (sum, line) => sum + Number(line.requested_quantity || 0),
     0
   );
+
+  const cartStockState = useMemo(() => {
+    const sourceSiteId = form.from_site_id ? Number(form.from_site_id) : null;
+    const sourceWarehouseId = form.from_warehouse_id ? Number(form.from_warehouse_id) : null;
+
+    return form.lines.reduce((acc, line, index) => {
+      if (!line.product_id) return acc;
+
+      const product = products.find(
+        (item) => Number(item.id) === Number(line.product_id)
+      );
+
+      const knownAvailableQty = getKnownAvailableQty(line.product_id);
+      const availableQty =
+        knownAvailableQty != null
+          ? knownAvailableQty
+          : resolveAvailableStock(product, {
+              siteId: sourceSiteId,
+              warehouseId: sourceWarehouseId,
+            });
+      const requestedQty = normalizeQty(line.requested_quantity);
+      const insufficient = availableQty != null && requestedQty > availableQty;
+
+      acc[index] = {
+        product,
+        availableQty,
+        requestedQty,
+        insufficient,
+        stockUnitLabel: resolveStockUnitLabel(product),
+      };
+      return acc;
+    }, {});
+  }, [form.lines, form.from_site_id, form.from_warehouse_id, products, sourceStockRows]);
 
   const renderDetailContent = () => (
     <>
@@ -884,7 +1053,7 @@ export default function InterSiteRequest() {
                 disabled={approving}
                 className="rounded-xl bg-emerald-700 px-4 py-2 text-sm text-white disabled:opacity-60"
               >
-                {approving ? "Validation..." : "Valider la demande"}
+                {approving ? "Approbation..." : "Approuver BT"}
               </button>
             )}
           </div>
@@ -944,121 +1113,42 @@ export default function InterSiteRequest() {
           )}
 
           <div className="rounded-2xl border border-slate-200 p-4">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="font-semibold text-slate-800">Lignes</h3>
-              {canApproveRequest && String(selectedRequest.status || "").toLowerCase() === "pending" && (
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-                  Modifiable avant validation
-                </span>
-              )}
-            </div>
+            <h3 className="mb-3 font-semibold text-slate-800">Lignes</h3>
 
             <div className="space-y-3">
-              {(canApproveRequest && String(selectedRequest.status || "").toLowerCase() === "pending"
-                ? approvalDraftLines
-                : (selectedRequest.lines ?? [])
-              ).map((line, index) => {
-                const sourceLine =
-                  (selectedRequest.lines ?? []).find(
-                    (item) => Number(item.id) === Number(line.id)
-                  ) || line;
-                const product = sourceLine.product;
-
-                return (
-                  <div
-                    key={line.id || `${line.product_id}-${index}`}
-                    className="rounded-xl bg-slate-50 p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="font-semibold text-slate-800">
-                          {product?.name || "-"}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {product?.code || "Sans code"}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700">
-                        Demandé : {formatQty(sourceLine.requested_quantity)}
-                      </div>
-                    </div>
-
-                    {canApproveRequest && String(selectedRequest.status || "").toLowerCase() === "pending" ? (
-                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[180px_1fr]">
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">
-                            Quantité approuvée
-                          </label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.001"
-                            className="w-full rounded-xl border p-3"
-                            value={line.approved_quantity}
-                            onChange={(e) =>
-                              updateApprovalLine(index, "approved_quantity", e.target.value)
-                            }
-                          />
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateApprovalLine(
-                                index,
-                                "approved_quantity",
-                                String(sourceLine.requested_quantity ?? 0)
-                              )
-                            }
-                            className="mt-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-medium text-slate-700"
-                          >
-                            Reprendre quantité demandée
-                          </button>
-                        </div>
-
-                        <div>
-                          <label className="mb-2 block text-sm font-medium text-slate-700">
-                            Notes validation
-                          </label>
-                          <textarea
-                            className="min-h-[96px] w-full rounded-xl border p-3"
-                            value={line.notes || ""}
-                            onChange={(e) => updateApprovalLine(index, "notes", e.target.value)}
-                            placeholder="Ajustement éventuel du stock préparé, remarque, substitution..."
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500">
-                          <div>Demandé : {formatQty(sourceLine.requested_quantity)}</div>
-                          <div>
-                            Approuvé :{" "}
-                            {sourceLine.approved_quantity != null
-                              ? formatQty(sourceLine.approved_quantity)
-                              : "-"}
-                          </div>
-                          <div>
-                            Expédié :{" "}
-                            {sourceLine.sent_quantity != null
-                              ? formatQty(sourceLine.sent_quantity)
-                              : "-"}
-                          </div>
-                          <div>
-                            Reçu :{" "}
-                            {sourceLine.received_quantity != null
-                              ? formatQty(sourceLine.received_quantity)
-                              : "-"}
-                          </div>
-                        </div>
-
-                        {sourceLine.notes && (
-                          <div className="mt-2 text-sm text-slate-600">{sourceLine.notes}</div>
-                        )}
-                      </>
-                    )}
+              {(selectedRequest.lines ?? []).map((line) => (
+                <div key={line.id} className="rounded-xl bg-slate-50 p-4">
+                  <div className="font-semibold text-slate-800">
+                    {line.product?.name || "-"}
                   </div>
-                );
-              })}
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-500">
+                    <div>Demandé : {formatQty(line.requested_quantity)}</div>
+                    <div>
+                      Approuvé :{" "}
+                      {line.approved_quantity != null
+                        ? formatQty(line.approved_quantity)
+                        : "-"}
+                    </div>
+                    <div>
+                      Expédié :{" "}
+                      {line.sent_quantity != null
+                        ? formatQty(line.sent_quantity)
+                        : "-"}
+                    </div>
+                    <div>
+                      Reçu :{" "}
+                      {line.received_quantity != null
+                        ? formatQty(line.received_quantity)
+                        : "-"}
+                    </div>
+                  </div>
+
+                  {line.notes && (
+                    <div className="mt-2 text-sm text-slate-600">{line.notes}</div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
@@ -1081,22 +1171,11 @@ export default function InterSiteRequest() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800">Demandes inter-sites</h1>
-          <p className="text-slate-500">
-            Création, approbation et suivi des bons de transfert.
-          </p>
-        </div>
-
-        {pendingCount > 0 && (isGlobalApprover || isSourceManagerRole) && (
-          <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
-            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-xs font-bold text-white">
-              {pendingCount}
-            </span>
-            Demande(s) en attente de validation
-          </div>
-        )}
+      <div>
+        <h1 className="text-3xl font-bold text-slate-800">Demandes inter-sites</h1>
+        <p className="text-slate-500">
+          Création, approbation et suivi des bons de transfert.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -1320,7 +1399,7 @@ export default function InterSiteRequest() {
         <div className="rounded-2xl bg-white p-5 shadow">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <div className="flex items-center gap-2"><h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>{pendingCount > 0 && (isGlobalApprover || isSourceManagerRole) && (<span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-xs font-bold text-white">{pendingCount}</span>)}</div>
+              <h2 className="text-xl font-semibold text-slate-800">Liste BT</h2>
               <p className="mt-1 text-sm text-slate-500">
                 Cliquez sur un BT pour ouvrir son détail.
               </p>
@@ -1458,14 +1537,23 @@ export default function InterSiteRequest() {
               )}
 
               {form.lines.map((line, index) => {
-                const product = products.find(
-                  (item) => Number(item.id) === Number(line.product_id)
-                );
+                const stockState = cartStockState[index] || {};
+                const product = stockState.product;
+                const isInsufficient = !!stockState.insufficient;
+                const availableQty = stockState.availableQty;
+                const stockUnitLabel = stockState.stockUnitLabel;
 
                 if (!line.product_id) return null;
 
                 return (
-                  <div key={`${line.product_id}-${index}`} className="rounded-2xl border p-4">
+                  <div
+                    key={`${line.product_id}-${index}`}
+                    className={`rounded-2xl border p-4 ${
+                      isInsufficient
+                        ? "border-red-300 bg-red-50"
+                        : "border-slate-200 bg-white"
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="font-semibold text-slate-800">
@@ -1474,6 +1562,16 @@ export default function InterSiteRequest() {
                         <div className="mt-1 text-xs text-slate-500">
                           {product?.code || "Sans code"}
                         </div>
+                        {isInsufficient && (
+                          <div className="mt-2 rounded-xl bg-red-100 px-3 py-2 text-xs font-medium text-red-700">
+                            Impossible de charger ce produit (stock insuffisant)
+                            {availableQty != null
+                              ? ` — Disponible : ${formatQty(availableQty)}${
+                                  stockUnitLabel ? ` ${stockUnitLabel}` : ""
+                                }`
+                              : ""}
+                          </div>
+                        )}
                       </div>
 
                       <button
@@ -1497,7 +1595,11 @@ export default function InterSiteRequest() {
                       <input
                         type="number"
                         step="0.001"
-                        className="w-full rounded-xl border p-3 text-center"
+                        className={`w-full rounded-xl border p-3 text-center ${
+                          isInsufficient
+                            ? "border-red-300 bg-white text-red-700"
+                            : ""
+                        }`}
                         value={line.requested_quantity}
                         onChange={(e) =>
                           updateLine(index, "requested_quantity", e.target.value)
