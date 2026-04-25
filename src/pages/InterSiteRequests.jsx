@@ -843,11 +843,26 @@ export default function InterSiteRequest() {
   const approveRequest = async () => {
     if (!selectedRequest?.id) return;
 
+    const payload = {
+      lines: (selectedRequest?.lines || []).map((line) => ({
+        id: Number(line.id),
+        approved_quantity: Number(
+          line.approved_quantity != null ? line.approved_quantity : line.requested_quantity || 0
+        ),
+        notes: line.notes || "",
+      })),
+    };
+
+    if (!payload.lines.length) {
+      toast.error("Aucune ligne à approuver");
+      return;
+    }
     try {
       setApproving(true);
 
       const res = await api.post(
-        `/inter-site-requests/${selectedRequest.id}/approve`
+        `/inter-site-requests/${selectedRequest.id}/approve`,
+        payload
       );
 
       toast.success(res.data?.message || "Bon de transfert approuvé");
