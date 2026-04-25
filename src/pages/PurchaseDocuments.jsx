@@ -331,6 +331,30 @@ function computeLineUnitPrice(line) {
   return line.unit_price ?? line.unit_cost ?? 0;
 }
 
+function buildSpaPageUrl(page, extraParams = {}) {
+  const url = new URL(window.location.href);
+  const params = new URLSearchParams(url.search);
+
+  params.set("page", page);
+  params.delete("open_page");
+
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+  });
+
+  return `${url.origin}${url.pathname}?${params.toString()}`;
+}
+
+function buildScanUrl(doc) {
+  return buildSpaPageUrl("purchaseDocumentScanMobile", {
+    scan_token: doc?.qr_token || "",
+  });
+}
+
 export default function PurchaseDocuments() {
   const { user } = useAuth();
   const isStockSiteUser = user?.role === "stock";
@@ -846,7 +870,7 @@ export default function PurchaseDocuments() {
 
                     {selectedDoc.qr_scan_url && (
                       <a
-                        href={selectedDoc.qr_scan_url}
+                        href={buildScanUrl(selectedDoc)}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-xl bg-blue-700 px-4 py-2 text-white"
@@ -920,7 +944,7 @@ export default function PurchaseDocuments() {
 
                       <div className="space-y-3">
                         <div className="text-sm text-slate-600 break-all">
-                          {selectedDoc.qr_scan_url || "-"}
+                          {buildScanUrl(selectedDoc) || "-"}
                         </div>
                       </div>
                     </div>
