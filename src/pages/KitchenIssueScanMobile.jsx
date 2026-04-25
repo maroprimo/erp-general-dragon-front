@@ -8,19 +8,31 @@ import { useAuth } from "../context/AuthContext";
 function extractToken(value) {
   if (!value) return "";
 
+  const raw = String(value).trim();
+
   try {
-    const url = new URL(value);
+    const url = new URL(raw);
+
+    const queryToken =
+      url.searchParams.get("scan_token") ||
+      url.searchParams.get("token") ||
+      "";
+
+    if (queryToken) {
+      return queryToken.trim();
+    }
+
     const parts = url.pathname.split("/").filter(Boolean);
     const scanIndex = parts.indexOf("scan-kitchen-issue");
 
     if (scanIndex >= 0 && parts[scanIndex + 1]) {
-      return parts[scanIndex + 1];
+      return parts[scanIndex + 1].trim();
     }
   } catch (_) {
-    // continue
+    // ce n'est pas une URL complète, on continue
   }
 
-  return value.replace(/^.*scan-kitchen-issue\//, "").trim();
+  return raw.replace(/^.*scan-kitchen-issue\//, "").trim();
 }
 
 function statusBadgeClass(status) {
@@ -79,7 +91,9 @@ export default function KitchenIssueScanMobile() {
       toast.error("Token QR introuvable");
       return;
     }
-setScanToken(token);
+
+    setScanToken(token);
+
     try {
       setLoading(true);
       const res = await api.get(`/kitchen-issue-scan/${token}`);
