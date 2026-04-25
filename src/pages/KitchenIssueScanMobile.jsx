@@ -79,7 +79,7 @@ export default function KitchenIssueScanMobile() {
       toast.error("Token QR introuvable");
       return;
     }
-
+setScanToken(token);
     try {
       setLoading(true);
       const res = await api.get(`/kitchen-issue-scan/${token}`);
