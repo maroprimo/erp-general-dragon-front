@@ -91,7 +91,7 @@ function buildSpaPageUrl(page, extraParams = {}) {
 }
 
 function buildScanUrl(issue) {
-  return buildSpaPageUrl("TransferScanMobile", {
+  return buildSpaPageUrl("transferScanMobile", {
     scan_token: issue?.qr_token || "",
   });
 }
