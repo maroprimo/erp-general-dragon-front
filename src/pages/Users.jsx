@@ -113,23 +113,23 @@ export default function Users() {
     )}`;
   };
   */
-  const getAvatarSrc = (user) => {
-    if (user?.avatar_url && user.avatar_url.startsWith("http")) {
-      return user.avatar_url;
-    }
+const getAvatarSrc = (user) => {
+  if (user?.avatar_path) {
+    const cleanPath = user.avatar_path.startsWith("/")
+      ? user.avatar_path.substring(1)
+      : user.avatar_path;
 
-    if (user?.avatar_path) {
-      const cleanPath = user.avatar_path.startsWith("/")
-        ? user.avatar_path.substring(1)
-        : user.avatar_path;
+    return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
+  }
 
-      return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
-    }
+  if (user?.avatar_url && user.avatar_url.startsWith("http")) {
+    return user.avatar_url;
+  }
 
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(
-      user?.name || user?.email || "User"
-    )}`;
-  };
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    user?.name || user?.email || "User"
+  )}`;
+};
 
   const getWarehouseLabel = (userItem) => {
     if (userItem?.warehouse?.name) return userItem.warehouse.name;
