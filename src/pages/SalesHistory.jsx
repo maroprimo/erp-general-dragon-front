@@ -43,6 +43,19 @@ function statusBadgeClass(status) {
   }
 }
 
+function paymentBadgeClass(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "paid":
+      return "bg-emerald-100 text-emerald-700";
+    case "partial":
+      return "bg-amber-100 text-amber-700";
+    case "unpaid":
+      return "bg-slate-100 text-slate-700";
+    default:
+      return "bg-slate-100 text-slate-700";
+  }
+}
+
 function orderTypeLabel(value) {
   switch (String(value || "").toLowerCase()) {
     case "comptoir":
@@ -62,6 +75,7 @@ export default function SalesHistory() {
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   const [sales, setSales] = useState([]);
   const [sites, setSites] = useState([]);
@@ -89,7 +103,9 @@ export default function SalesHistory() {
     const restricted = !["pdg", "admin"].includes(role);
 
     if (restricted && user?.site_id) {
-      return (sites ?? []).filter((site) => Number(site.id) === Number(user.site_id));
+      return (sites ?? []).filter(
+        (site) => Number(site.id) === Number(user.site_id)
+      );
     }
 
     return sites ?? [];
@@ -116,6 +132,21 @@ export default function SalesHistory() {
     }
   };
 
+  const openSale = async (saleId) => {
+    if (!saleId) return;
+
+    try {
+      setDetailLoading(true);
+      const res = await api.get(`/sales/${saleId}`);
+      setSelectedSale(res.data?.data || res.data || null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible de charger le détail de la vente");
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
   const loadSales = async (customFilters = filters) => {
     try {
       setLoading(true);
@@ -132,38 +163,32 @@ export default function SalesHistory() {
       const rows = asArray(res.data);
       setSales(rows);
 
-      if (!selectedSale && rows.length > 0) {
+      if (!rows.length) {
+        setSelectedSale(null);
+        return;
+      }
+
+      if (!selectedSale) {
         await openSale(rows[0].id);
-      } else if (selectedSale) {
-        const stillExists = rows.some((item) => Number(item.id) === Number(selectedSale.id));
-        if (!stillExists) {
-          setSelectedSale(rows[0] || null);
-          if (rows[0]?.id) {
-            await openSale(rows[0].id);
-          }
-        }
+        return;
+      }
+
+      const stillExists = rows.some(
+        (item) => Number(item.id) === Number(selectedSale.id)
+      );
+
+      if (stillExists) {
+        await openSale(selectedSale.id);
+      } else {
+        await openSale(rows[0].id);
       }
     } catch (err) {
       console.error(err);
       toast.error("Impossible de charger l'historique des ventes");
       setSales([]);
+      setSelectedSale(null);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const openSale = async (saleId) => {
-    if (!saleId) return;
-
-    try {
-      setDetailLoading(true);
-      const res = await api.get(`/sales/${saleId}`);
-      setSelectedSale(res.data?.data || res.data || null);
-    } catch (err) {
-      console.error(err);
-      toast.error("Impossible de charger le détail de la vente");
-    } finally {
-      setDetailLoading(false);
     }
   };
 
@@ -175,23 +200,33 @@ export default function SalesHistory() {
     const role = String(user?.role || "").toLowerCase();
     const restricted = !["pdg", "admin"].includes(role);
 
-    const initialSiteId =
-      restricted
-        ? String(user?.site_id || "")
-        : activeTerminal?.site_id
-        ? String(activeTerminal.site_id)
-        : "";
+    const initialSiteId = restricted
+      ? String(user?.site_id || "")
+      : activeTerminal?.site_id
+      ? String(activeTerminal.site_id)
+      : "";
 
-    setFilters((prev) => ({
-      ...prev,
-      site_id: prev.site_id || initialSiteId,
-      terminal_id:
-        prev.terminal_id || (activeTerminal?.id ? String(activeTerminal.id) : ""),
-    }));
+    const initialTerminalId = activeTerminal?.id
+      ? String(activeTerminal.id)
+      : "";
+
+    const nextFilters = {
+      ...filters,
+      site_id: filters.site_id || initialSiteId,
+      terminal_id: filters.terminal_id || initialTerminalId,
+    };
+
+    setFilters(nextFilters);
+
+    if (!initialized) {
+      loadSales(nextFilters);
+      setInitialized(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.site_id, user?.role, activeTerminal?.id, activeTerminal?.site_id]);
 
   useEffect(() => {
+    if (!initialized) return;
     loadSales(filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -215,7 +250,6 @@ export default function SalesHistory() {
 
       toast.success(res.data?.message || "Vente annulée");
       await loadSales(filters);
-      await openSale(selectedSale.id);
     } catch (err) {
       console.error(err);
       toast.error(err?.response?.data?.message || "Erreur annulation vente");
@@ -254,9 +288,7 @@ export default function SalesHistory() {
 
             <div className="rounded-2xl bg-white/10 px-4 py-3 text-sm">
               <div className="text-slate-300">Utilisateur</div>
-              <div className="font-bold">
-                {user?.name || user?.email || "-"}
-              </div>
+              <div className="font-bold">{user?.name || user?.email || "-"}</div>
             </div>
           </div>
         </div>
@@ -407,13 +439,23 @@ export default function SalesHistory() {
                       </div>
                     </div>
 
-                    <span
-                      className={`rounded-lg px-2 py-1 text-xs font-semibold ${statusBadgeClass(
-                        sale.status
-                      )}`}
-                    >
-                      {sale.status}
-                    </span>
+                    <div className="flex flex-col gap-2">
+                      <span
+                        className={`rounded-lg px-2 py-1 text-xs font-semibold ${statusBadgeClass(
+                          sale.status
+                        )}`}
+                      >
+                        {sale.status}
+                      </span>
+
+                      <span
+                        className={`rounded-lg px-2 py-1 text-xs font-semibold ${paymentBadgeClass(
+                          sale.payment_status
+                        )}`}
+                      >
+                        {sale.payment_status || "unpaid"}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -482,16 +524,23 @@ export default function SalesHistory() {
                       {selectedSale.status}
                     </span>
 
-                    {canCancelSale &&
-                      selectedSale.status !== "cancelled" && (
-                        <button
-                          onClick={cancelSale}
-                          disabled={cancelling}
-                          className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
-                        >
-                          {cancelling ? "Annulation..." : "Annuler ticket"}
-                        </button>
-                      )}
+                    <span
+                      className={`rounded-xl px-3 py-2 text-sm font-bold ${paymentBadgeClass(
+                        selectedSale.payment_status
+                      )}`}
+                    >
+                      {selectedSale.payment_status || "unpaid"}
+                    </span>
+
+                    {canCancelSale && selectedSale.status !== "cancelled" && (
+                      <button
+                        onClick={cancelSale}
+                        disabled={cancelling}
+                        className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
+                      >
+                        {cancelling ? "Annulation..." : "Annuler ticket"}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -558,6 +607,84 @@ export default function SalesHistory() {
                       {formatMoney(selectedSale.total)} Ar
                     </div>
                   </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <div className="text-sm text-slate-500">Statut paiement</div>
+                    <div className="font-semibold text-slate-800">
+                      {selectedSale.payment_status || "-"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <div className="text-sm text-slate-500">Payé</div>
+                    <div className="font-semibold text-slate-800">
+                      {formatMoney(selectedSale.paid_amount)} Ar
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <div className="text-sm text-slate-500">Reste à payer</div>
+                    <div className="font-semibold text-slate-800">
+                      {formatMoney(selectedSale.balance_due)} Ar
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl bg-slate-50 p-4">
+                    <div className="text-sm text-slate-500">Monnaie rendue</div>
+                    <div className="font-semibold text-slate-800">
+                      {formatMoney(selectedSale.change_amount)} Ar
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <h3 className="mb-3 text-lg font-semibold text-slate-800">
+                    Paiements
+                  </h3>
+
+                  <div className="space-y-3">
+                    {(selectedSale.payments ?? []).map((payment) => (
+                      <div key={payment.id} className="rounded-xl bg-slate-50 p-4">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="font-semibold text-slate-800">
+                              {payment.payment_method}
+                            </div>
+                            <div className="text-sm text-slate-500">
+                              {formatDateTime(payment.paid_at)} • {payment.receiver?.name || "-"}
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="font-bold text-slate-900">
+                              {formatMoney(payment.amount)} Ar
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              Reçu : {formatMoney(payment.received_amount)} Ar • Monnaie : {formatMoney(payment.change_amount)} Ar
+                            </div>
+                          </div>
+                        </div>
+
+                        {payment.reference && (
+                          <div className="mt-2 text-sm text-slate-600">
+                            Référence : {payment.reference}
+                          </div>
+                        )}
+
+                        {payment.notes && (
+                          <div className="mt-1 text-sm text-slate-600">
+                            Note : {payment.notes}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {(selectedSale.payments ?? []).length === 0 && (
+                      <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+                        Aucun paiement enregistré.
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {selectedSale.notes && (
@@ -585,10 +712,7 @@ export default function SalesHistory() {
 
                   <div className="space-y-3">
                     {(selectedSale.items ?? []).map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-xl bg-slate-50 p-4"
-                      >
+                      <div key={item.id} className="rounded-xl bg-slate-50 p-4">
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                           <div>
                             <div className="font-semibold text-slate-800">

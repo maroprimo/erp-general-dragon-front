@@ -78,6 +78,11 @@ items: [
     label: "Historique ventes",
     roles: ["pdg", "admin", "controle"],
   },
+  {
+    key: "cashSessions",
+    label: "Ouverture / Clôture caisse",
+    roles: ["pdg", "admin", "controle", "stock"],
+  },
 ],
 },
   {
