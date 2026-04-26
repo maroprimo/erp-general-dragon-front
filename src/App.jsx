@@ -44,6 +44,8 @@ import KitchenIssues from "./pages/KitchenIssues";
 import KitchenIssueScanMobile from "./pages/KitchenIssueScanMobile";
 import Terminals from "./pages/Terminals";
 import SalesPOS from "./pages/SalesPOS";
+import PosMenuItems from "./pages/PosMenuItems";
+import SalesHistory from "./pages/SalesHistory";
 
 const PAGE_ACCESS = {
   dashboard: ["pdg", "admin"],
@@ -51,6 +53,8 @@ const PAGE_ACCESS = {
   stockDashboardGlobal: ["pdg"],
   terminals: ["pdg", "admin"],
   salesPOS: ["pdg", "admin"],
+  posMenuItems: ["pdg", "admin"],
+  salesHistory: ["pdg", "admin", "controle"],
 
   stock: ["pdg", "admin", "stock", "cuisine"],
   stockLosses: ["pdg", "admin", "stock", "controle"],
@@ -228,6 +232,8 @@ const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
   function renderPage() {
     if (page === "dashboard") return <Dashboard />;
     if (page === "salesPOS") return <SalesPOS />;
+    if (page === "posMenuItems") return <PosMenuItems />;
+    if (page === "salesHistory") return <SalesHistory />;
     if (page === "stockDashboardSite") return <StockDashboardSite />;
     if (page === "stockDashboardGlobal") return <StockDashboardGlobal />;
 

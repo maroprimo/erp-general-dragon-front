@@ -62,13 +62,23 @@ const MENU_GROUPS = [
   title: "POS Vente",
   description:
     "Caisse tactile moderne, ticket rapide, préparation des futures liaisons stock, cuisine et encaissement.",
-  items: [
-    {
-      key: "salesPOS",
-      label: "POS Vente",
-      roles: ["pdg", "admin"],
-    },
-  ],
+items: [
+  {
+    key: "salesPOS",
+    label: "POS Vente",
+    roles: ["pdg", "admin"],
+  },
+  {
+    key: "posMenuItems",
+    label: "Carte POS",
+    roles: ["pdg", "admin"],
+  },
+  {
+    key: "salesHistory",
+    label: "Historique ventes",
+    roles: ["pdg", "admin", "controle"],
+  },
+],
 },
   {
     key: "stock",

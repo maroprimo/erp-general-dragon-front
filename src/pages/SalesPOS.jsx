@@ -1,32 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
-const DEMO_CATEGORIES = [
+const FALLBACK_CATEGORIES = [
   { id: "all", name: "Tout" },
   { id: "pizza", name: "Pizza" },
   { id: "poulet", name: "Poulet" },
-  { id: "kebab", name: "Kebab" },
-  { id: "sandwich", name: "Sandwich" },
   { id: "boisson", name: "Boisson" },
-  { id: "dessert", name: "Dessert" },
 ];
 
-const DEMO_PRODUCTS = [
-  { id: 1, name: "Pizza Regina", category: "pizza", price: 28000, station: "Cuisine Pizza" },
-  { id: 2, name: "Pizza Royale", category: "pizza", price: 32000, station: "Cuisine Pizza" },
-  { id: 3, name: "Pizza 4 Fromages", category: "pizza", price: 34000, station: "Cuisine Pizza" },
-  { id: 4, name: "Poulet BBQ", category: "poulet", price: 26000, station: "Cuisine Chaude" },
-  { id: 5, name: "Poulet Crispy", category: "poulet", price: 24000, station: "Cuisine Chaude" },
-  { id: 6, name: "Kebab Bœuf", category: "kebab", price: 18000, station: "Snack" },
-  { id: 7, name: "Kebab Poulet", category: "kebab", price: 17000, station: "Snack" },
-  { id: 8, name: "Sandwich Club", category: "sandwich", price: 15000, station: "Snack" },
-  { id: 9, name: "Sandwich Poulet", category: "sandwich", price: 16000, station: "Snack" },
-  { id: 10, name: "Coca-Cola", category: "boisson", price: 5000, station: "Bar / Boissons" },
-  { id: 11, name: "Eau Minérale", category: "boisson", price: 3000, station: "Bar / Boissons" },
-  { id: 12, name: "Jus Orange", category: "boisson", price: 7000, station: "Bar / Boissons" },
-  { id: 13, name: "Glace Vanille", category: "dessert", price: 8000, station: "Dessert" },
-  { id: 14, name: "Brownie", category: "dessert", price: 9000, station: "Dessert" },
+const FALLBACK_PRODUCTS = [
+  { id: 1, product_id: 1, name: "Pizza Regina", category: "pizza", price: 28000, station: "Cuisine Pizza" },
+  { id: 2, product_id: 2, name: "Poulet BBQ", category: "poulet", price: 26000, station: "Cuisine Chaude" },
+  { id: 3, product_id: 3, name: "Coca-Cola", category: "boisson", price: 5000, station: "Bar / Boissons" },
 ];
 
 function formatMoney(value) {
@@ -44,6 +31,13 @@ function getInitialDraft() {
   };
 }
 
+function normalizeOrderType(orderType) {
+  if (orderType === "comptoir") return "comptoir";
+  if (orderType === "salle") return "salle";
+  if (orderType === "livraison") return "livraison";
+  return "comptoir";
+}
+
 export default function SalesPOS() {
   const { user, activeTerminal } = useAuth();
 
@@ -53,9 +47,97 @@ export default function SalesPOS() {
 
   const [draft, setDraft] = useState(getInitialDraft());
 
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
+  const [categories, setCategories] = useState(FALLBACK_CATEGORIES);
+  const [products, setProducts] = useState(FALLBACK_PRODUCTS);
+
+  const [savingSale, setSavingSale] = useState(false);
+
   const storageKey = useMemo(() => {
     return `sales_pos_draft_${user?.id || "guest"}_${activeTerminal?.id || "no-terminal"}`;
   }, [user?.id, activeTerminal?.id]);
+
+  const validateSale = async () => {
+  if (!draft.lines.length) {
+    toast.error("Le ticket est vide");
+    return;
+  }
+
+  try {
+    setSavingSale(true);
+
+    const payload = {
+      site_id: activeTerminal?.site_id || user?.site_id || null,
+      warehouse_id: activeTerminal?.warehouse_id || user?.warehouse_id || null,
+      terminal_id: activeTerminal?.id || null,
+      order_type: draft.orderType,
+      table_label: draft.orderType === "salle" ? draft.tableLabel || null : null,
+      customer_name: draft.orderType === "livraison" ? draft.customerName || null : null,
+      customer_phone: draft.orderType === "livraison" ? draft.customerPhone || null : null,
+      notes: draft.notes || null,
+      status: "validated",
+      lines: draft.lines.map((line) => ({
+        product_id: line.product_id || null,
+        pos_menu_item_id: line.menu_item_id || null,
+        name: line.name,
+        category: line.category || null,
+        station: line.station || null,
+        unit_name: line.unit_name || null,
+        quantity: Number(line.quantity || 0),
+        price: Number(line.price || 0),
+        note: line.note || null,
+      })),
+    };
+
+    const res = await api.post("/sales", payload);
+
+    toast.success(res.data?.message || "Vente enregistrée");
+
+    const next = getInitialDraft();
+    setDraft(next);
+    sessionStorage.removeItem(storageKey);
+    setTicketOpen(false);
+  } catch (err) {
+    console.error(err);
+    toast.error(err?.response?.data?.message || "Erreur enregistrement vente");
+  } finally {
+    setSavingSale(false);
+  }
+};
+
+  const loadCatalog = async (orderType = "comptoir") => {
+    try {
+      setCatalogLoading(true);
+      setCatalogError("");
+
+      const res = await api.get("/pos/catalog", {
+        params: {
+          order_type: normalizeOrderType(orderType),
+        },
+      });
+
+      const apiCategories = Array.isArray(res.data?.categories) ? res.data.categories : [];
+      const apiItems = Array.isArray(res.data?.items) ? res.data.items : [];
+
+      setCategories([
+        { id: "all", name: "Tout" },
+        ...apiCategories.map((item) => ({
+          id: item.id,
+          name: item.name,
+        })),
+      ]);
+
+      setProducts(apiItems);
+    } catch (error) {
+      console.error(error);
+      setCatalogError("Impossible de charger le catalogue réel. Fallback local utilisé.");
+      setCategories(FALLBACK_CATEGORIES);
+      setProducts(FALLBACK_PRODUCTS);
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -81,22 +163,29 @@ export default function SalesPOS() {
     }
   }, [draft, storageKey]);
 
+  useEffect(() => {
+    loadCatalog(draft.orderType);
+  }, [draft.orderType]);
+
   const filteredProducts = useMemo(() => {
     const term = search.trim().toLowerCase();
 
-    return DEMO_PRODUCTS.filter((product) => {
+    return products.filter((product) => {
+      const productCategory = String(product.category || "").toLowerCase();
+
       const categoryOk =
-        selectedCategory === "all" || product.category === selectedCategory;
+        selectedCategory === "all" ||
+        productCategory === String(selectedCategory).toLowerCase();
 
       const searchOk = term
-        ? `${product.name} ${product.station} ${product.category}`
+        ? `${product.name} ${product.station} ${product.category} ${product.product_name || ""} ${product.product_code || ""}`
             .toLowerCase()
             .includes(term)
         : true;
 
       return categoryOk && searchOk;
     });
-  }, [selectedCategory, search]);
+  }, [products, selectedCategory, search]);
 
   const totalItems = useMemo(() => {
     return draft.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
@@ -111,13 +200,13 @@ export default function SalesPOS() {
 
   const addToTicket = (product) => {
     setDraft((prev) => {
-      const exists = prev.lines.find((line) => line.product_id === product.id);
+      const exists = prev.lines.find((line) => line.menu_item_id === product.id);
 
       if (exists) {
         return {
           ...prev,
           lines: prev.lines.map((line) =>
-            line.product_id === product.id
+            line.menu_item_id === product.id
               ? { ...line, quantity: Number(line.quantity) + 1 }
               : line
           ),
@@ -129,45 +218,49 @@ export default function SalesPOS() {
         lines: [
           ...prev.lines,
           {
-            product_id: product.id,
+            menu_item_id: product.id,
+            product_id: product.product_id,
             name: product.name,
             category: product.category,
             station: product.station,
             quantity: 1,
             price: product.price,
             note: "",
+            unit_name: product.unit_name || "",
           },
         ],
       };
     });
   };
 
-  const updateLine = (productId, field, value) => {
+  const updateLine = (menuItemId, field, value) => {
     setDraft((prev) => ({
       ...prev,
       lines: prev.lines.map((line) =>
-        line.product_id === productId ? { ...line, [field]: value } : line
+        Number(line.menu_item_id) === Number(menuItemId)
+          ? { ...line, [field]: value }
+          : line
       ),
     }));
   };
 
-  const incrementLine = (productId) => {
+  const incrementLine = (menuItemId) => {
     setDraft((prev) => ({
       ...prev,
       lines: prev.lines.map((line) =>
-        line.product_id === productId
+        Number(line.menu_item_id) === Number(menuItemId)
           ? { ...line, quantity: Number(line.quantity) + 1 }
           : line
       ),
     }));
   };
 
-  const decrementLine = (productId) => {
+  const decrementLine = (menuItemId) => {
     setDraft((prev) => ({
       ...prev,
       lines: prev.lines
         .map((line) =>
-          line.product_id === productId
+          Number(line.menu_item_id) === Number(menuItemId)
             ? { ...line, quantity: Math.max(1, Number(line.quantity) - 1) }
             : line
         )
@@ -175,10 +268,12 @@ export default function SalesPOS() {
     }));
   };
 
-  const removeLine = (productId) => {
+  const removeLine = (menuItemId) => {
     setDraft((prev) => ({
       ...prev,
-      lines: prev.lines.filter((line) => line.product_id !== productId),
+      lines: prev.lines.filter(
+        (line) => Number(line.menu_item_id) !== Number(menuItemId)
+      ),
     }));
   };
 
@@ -323,7 +418,7 @@ export default function SalesPOS() {
 
         {draft.lines.map((line) => (
           <div
-            key={line.product_id}
+            key={line.menu_item_id}
             className="rounded-2xl border border-slate-200 bg-slate-50 p-3"
           >
             <div className="flex items-start justify-between gap-3">
@@ -333,7 +428,7 @@ export default function SalesPOS() {
               </div>
 
               <button
-                onClick={() => removeLine(line.product_id)}
+                onClick={() => removeLine(line.menu_item_id)}
                 className="rounded-xl bg-red-600 px-3 py-1 text-xs font-bold text-white"
               >
                 X
@@ -342,7 +437,7 @@ export default function SalesPOS() {
 
             <div className="mt-3 flex items-center gap-2">
               <button
-                onClick={() => decrementLine(line.product_id)}
+                onClick={() => decrementLine(line.menu_item_id)}
                 className="h-10 w-10 rounded-2xl bg-slate-200 text-lg font-black text-slate-800"
               >
                 -
@@ -354,12 +449,16 @@ export default function SalesPOS() {
                 className="w-20 rounded-2xl border p-2 text-center font-bold"
                 value={line.quantity}
                 onChange={(e) =>
-                  updateLine(line.product_id, "quantity", Math.max(1, Number(e.target.value || 1)))
+                  updateLine(
+                    line.menu_item_id,
+                    "quantity",
+                    Math.max(1, Number(e.target.value || 1))
+                  )
                 }
               />
 
               <button
-                onClick={() => incrementLine(line.product_id)}
+                onClick={() => incrementLine(line.menu_item_id)}
                 className="h-10 w-10 rounded-2xl bg-slate-900 text-lg font-black text-white"
               >
                 +
@@ -379,7 +478,7 @@ export default function SalesPOS() {
               className="mt-3 w-full rounded-2xl border p-2 text-sm"
               placeholder="Remarque ligne"
               value={line.note || ""}
-              onChange={(e) => updateLine(line.product_id, "note", e.target.value)}
+              onChange={(e) => updateLine(line.menu_item_id, "note", e.target.value)}
             />
           </div>
         ))}
@@ -423,12 +522,13 @@ export default function SalesPOS() {
         </button>
       </div>
 
-      <button
-        onClick={() => fakeAction("Validation ticket")}
-        className="mt-3 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white"
-      >
-        Valider le ticket
-      </button>
+        <button
+        onClick={validateSale}
+        disabled={savingSale}
+        className="mt-3 rounded-2xl bg-slate-950 px-4 py-4 text-sm font-black text-white disabled:opacity-60"
+        >
+        {savingSale ? "Enregistrement..." : "Valider le ticket"}
+        </button>
     </div>
   );
 
@@ -439,7 +539,7 @@ export default function SalesPOS() {
           <div>
             <h1 className="text-3xl font-black tracking-tight">POS Vente — Sprint 1</h1>
             <p className="mt-1 text-sm text-slate-200">
-              Maquette opérationnelle du futur POS cloud Dragon Edition.
+              Catalogue réel POS branché au backend.
             </p>
           </div>
 
@@ -468,9 +568,9 @@ export default function SalesPOS() {
         </div>
       </div>
 
-      {!activeTerminal?.id && (
+      {catalogError && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Aucun poste actif détecté. Pour la suite POS multi-machine, il faudra se connecter avec un poste sélectionné.
+          {catalogError}
         </div>
       )}
 
@@ -480,12 +580,12 @@ export default function SalesPOS() {
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-lg font-black text-slate-900">Catégories</h2>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                {DEMO_CATEGORIES.length - 1}
+                {Math.max(0, categories.length - 1)}
               </span>
             </div>
 
             <div className="flex gap-2 overflow-x-auto xl:flex-col">
-              {DEMO_CATEGORIES.map((category) => {
+              {categories.map((category) => {
                 const active = selectedCategory === category.id;
 
                 return (
@@ -512,7 +612,7 @@ export default function SalesPOS() {
               <div>
                 <h2 className="text-xl font-black text-slate-900">Produits</h2>
                 <p className="text-sm text-slate-500">
-                  Sélection rapide tactile. Version locale en attendant l’API vente.
+                  {catalogLoading ? "Chargement du catalogue..." : "Catalogue vente actif"}
                 </p>
               </div>
 
@@ -541,8 +641,8 @@ export default function SalesPOS() {
                   className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-left transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-black text-slate-900">{product.name}</div>
+                    <div className="min-w-0">
+                      <div className="truncate font-black text-slate-900">{product.name}</div>
                       <div className="mt-1 text-xs font-medium text-slate-500">
                         {product.station}
                       </div>
@@ -565,9 +665,9 @@ export default function SalesPOS() {
                 </button>
               ))}
 
-              {filteredProducts.length === 0 && (
+              {!catalogLoading && filteredProducts.length === 0 && (
                 <div className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                  Aucun produit trouvé.
+                  Aucun produit POS configuré.
                 </div>
               )}
             </div>
