@@ -113,31 +113,38 @@ export default function Users() {
     )}`;
   };
   */
-onError={(e) => {
-  const rawPath = userItem?.avatar_path || "";
-  const cleanPath = String(rawPath).replace(/^\/+/, "");
+const getAvatarSrc = (user) => {
+  const rawAvatarUrl = user?.avatar_url || "";
+  const rawAvatarPath = user?.avatar_path || "";
 
-  if (rawPath && !e.currentTarget.dataset.fallbackTried) {
-    e.currentTarget.dataset.fallbackTried = "1";
-
-    if (cleanPath.startsWith("uploads/")) {
-      e.currentTarget.src = `https://stock.dragonroyalmg.com/${cleanPath}`;
-      return;
-    }
-
-    if (cleanPath.startsWith("storage/")) {
-      e.currentTarget.src = `https://stock.dragonroyalmg.com/${cleanPath}`;
-      return;
-    }
-
-    e.currentTarget.src = `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
-    return;
+  if (rawAvatarUrl && /^https?:\/\//i.test(rawAvatarUrl)) {
+    return rawAvatarUrl;
   }
 
-  e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    userItem?.name || "User"
+  if (rawAvatarPath) {
+    let cleanPath = String(rawAvatarPath).trim();
+
+    if (/^https?:\/\//i.test(cleanPath)) {
+      return cleanPath;
+    }
+
+    cleanPath = cleanPath.replace(/^\/+/, "");
+
+    if (cleanPath.startsWith("storage/")) {
+      return `https://stock.dragonroyalmg.com/${cleanPath}`;
+    }
+
+    if (cleanPath.startsWith("uploads/")) {
+      return `https://stock.dragonroyalmg.com/${cleanPath}`;
+    }
+
+    return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
+  }
+
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    user?.name || user?.email || "User"
   )}`;
-}}
+};
 
   const getWarehouseLabel = (userItem) => {
     if (userItem?.warehouse?.name) return userItem.warehouse.name;
