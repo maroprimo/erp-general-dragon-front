@@ -3,10 +3,21 @@ import { loginRequest, logoutRequest, meRequest } from "../services/auth";
 
 const AuthContext = createContext();
 
+const ACTIVE_TERMINAL_STORAGE_KEY = "active_terminal";
+
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTerminal, setActiveTerminal] = useState(() => {
+    try {
+      const raw = localStorage.getItem(ACTIVE_TERMINAL_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  });
 
   useEffect(() => {
     const init = async () => {
@@ -21,8 +32,10 @@ export function AuthProvider({ children }) {
       } catch (error) {
         console.error(error);
         localStorage.removeItem("token");
+        localStorage.removeItem(ACTIVE_TERMINAL_STORAGE_KEY);
         setToken("");
         setUser(null);
+        setActiveTerminal(null);
       } finally {
         setLoading(false);
       }
@@ -31,11 +44,24 @@ export function AuthProvider({ children }) {
     init();
   }, [token]);
 
-  const login = async (email, password) => {
-    const data = await loginRequest(email, password);
+  const login = async (email, password, terminalId = "", terminalMeta = null) => {
+    const data = await loginRequest(email, password, terminalId);
+    const authUser = data?.user ?? data?.data ?? null;
+
     localStorage.setItem("token", data.token);
     setToken(data.token);
-    setUser(data.user);
+    setUser(authUser);
+
+    if (terminalMeta) {
+      localStorage.setItem(
+        ACTIVE_TERMINAL_STORAGE_KEY,
+        JSON.stringify(terminalMeta)
+      );
+      setActiveTerminal(terminalMeta);
+    } else {
+      localStorage.removeItem(ACTIVE_TERMINAL_STORAGE_KEY);
+      setActiveTerminal(null);
+    }
   };
 
   const logout = async () => {
@@ -48,8 +74,10 @@ export function AuthProvider({ children }) {
     }
 
     localStorage.removeItem("token");
+    localStorage.removeItem(ACTIVE_TERMINAL_STORAGE_KEY);
     setToken("");
     setUser(null);
+    setActiveTerminal(null);
   };
 
   return (
@@ -57,10 +85,12 @@ export function AuthProvider({ children }) {
       value={{
         token,
         user,
-        setUser, // <-- IL FAUT AJOUTER CETTE LIGNE ICI
+        setUser,
         loading,
         login,
         logout,
+        activeTerminal,
+        setActiveTerminal,
         isAuthenticated: !!token,
       }}
     >
@@ -72,5 +102,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-
-

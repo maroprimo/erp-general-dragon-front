@@ -55,6 +55,21 @@ const MENU_GROUPS = [
       },
     ],
   },
+
+  {
+  key: "vente",
+  label: "Vente",
+  title: "POS Vente",
+  description:
+    "Caisse tactile moderne, ticket rapide, préparation des futures liaisons stock, cuisine et encaissement.",
+  items: [
+    {
+      key: "salesPOS",
+      label: "POS Vente",
+      roles: ["pdg", "admin"],
+    },
+  ],
+},
   {
     key: "stock",
     label: "Stock",
@@ -199,6 +214,11 @@ const MENU_GROUPS = [
         roles: ["pdg", "admin"],
       },
       {
+        key: "terminals",
+        label: "Postes",
+        roles: ["pdg", "admin"],
+      },
+      {
         key: "storageZones",
         label: "Zones stockage",
         roles: ["pdg", "admin", "stock"],
@@ -255,7 +275,14 @@ const MENU_GROUPS = [
   },
 ];
 
-export default function AppLayout({ user, logout, page, setPage, children }) {
+export default function AppLayout({
+  user,
+  logout,
+  activeTerminal,
+  page,
+  setPage,
+  children,
+}) {
   const [stockAlertCount, setStockAlertCount] = useState(0);
   const [pendingTransferCount, setPendingTransferCount] = useState(0);
   const [siteName, setSiteName] = useState("Chargement...");
@@ -508,16 +535,38 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
           </p>
 
           {/* Infos secondaires - Plus discrètes */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
-            <div className="flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-              <span className="font-medium text-slate-600">Site : {siteName}</span>
-            </div>
-            <span className="hidden sm:inline opacity-30">|</span>
-            <span className="truncate">
-              {user?.name || user?.email} • <span className="italic">{user?.role}</span>
-            </span>
-          </div>
+<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+  <div className="flex items-center gap-1">
+    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+    <span className="font-medium text-slate-600">
+      Site : {activeTerminal?.site_name || siteName}
+    </span>
+  </div>
+
+  {(user?.warehouse?.name || activeTerminal?.warehouse_name) && (
+    <>
+      <span className="hidden sm:inline opacity-30">|</span>
+      <span className="truncate">
+        Dépôt : {user?.warehouse?.name || activeTerminal?.warehouse_name}
+      </span>
+    </>
+  )}
+
+  {activeTerminal?.name && (
+    <>
+      <span className="hidden sm:inline opacity-30">|</span>
+      <span className="truncate">
+        Poste : {activeTerminal.name}
+        {activeTerminal.code ? ` (${activeTerminal.code})` : ""}
+      </span>
+    </>
+  )}
+
+  <span className="hidden sm:inline opacity-30">|</span>
+  <span className="truncate">
+    {user?.name || user?.email} • <span className="italic">{user?.role}</span>
+  </span>
+</div>
         </div>
       </div>
 
@@ -539,12 +588,20 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
             </div>
           )}
 
-          <div className="text-right">
-            <div className="max-w-[150px] truncate text-xs font-bold text-slate-800">
-              {user?.name || user?.email}
-            </div>
-            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-tighter">{user?.role}</div>
-          </div>
+<div className="text-right">
+  <div className="max-w-[150px] truncate text-xs font-bold text-slate-800">
+    {user?.name || user?.email}
+  </div>
+  <div className="text-[10px] font-medium uppercase tracking-tighter text-slate-400">
+    {user?.role}
+  </div>
+  {activeTerminal?.name && (
+    <div className="max-w-[170px] truncate text-[10px] text-emerald-600">
+      {activeTerminal.name}
+      {activeTerminal.code ? ` • ${activeTerminal.code}` : ""}
+    </div>
+  )}
+</div>
         </div>
 
         <button
@@ -591,15 +648,30 @@ export default function AppLayout({ user, logout, page, setPage, children }) {
     )}
 
     {/* Profil Mobile (visible uniquement sur mobile) - Épuré */}
-    <div className="flex items-center justify-between border-t border-slate-100 pt-2 sm:hidden">
-      <div className="flex items-center gap-2">
-         <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-         <span className="text-[10px] font-bold text-slate-600 uppercase">{siteName}</span>
-      </div>
-      <button onClick={logout} className="text-[10px] font-black uppercase text-red-600">
-        Déconnexion
-      </button>
+<div className="flex items-center justify-between border-t border-slate-100 pt-2 sm:hidden">
+  <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex items-center gap-2">
+      <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+      <span className="truncate text-[10px] font-bold uppercase text-slate-600">
+        {activeTerminal?.site_name || siteName}
+      </span>
     </div>
+
+    {activeTerminal?.name && (
+      <div className="truncate text-[10px] text-emerald-600">
+        Poste : {activeTerminal.name}
+        {activeTerminal.code ? ` (${activeTerminal.code})` : ""}
+      </div>
+    )}
+  </div>
+
+  <button
+    onClick={logout}
+    className="text-[10px] font-black uppercase text-red-600"
+  >
+    Déconnexion
+  </button>
+</div>
   </div>
 </header>
           <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8">

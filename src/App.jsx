@@ -42,11 +42,15 @@ import PurchaseDocumentScanMobile from "./pages/PurchaseDocumentScanMobile";
 import KitchenConsumptionScanMobile from "./pages/KitchenConsumptionScanMobile";
 import KitchenIssues from "./pages/KitchenIssues";
 import KitchenIssueScanMobile from "./pages/KitchenIssueScanMobile";
+import Terminals from "./pages/Terminals";
+import SalesPOS from "./pages/SalesPOS";
 
 const PAGE_ACCESS = {
   dashboard: ["pdg", "admin"],
   stockDashboardSite: ["pdg", "admin", "stock", "controle"],
   stockDashboardGlobal: ["pdg"],
+  terminals: ["pdg", "admin"],
+  salesPOS: ["pdg", "admin"],
 
   stock: ["pdg", "admin", "stock", "cuisine"],
   stockLosses: ["pdg", "admin", "stock", "controle"],
@@ -129,7 +133,7 @@ function getRequestedPageFromUrl() {
 }
 
 export default function App() {
-  const { isAuthenticated, loading, logout, user } = useAuth();
+const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
   const [page, setPage] = useState(null);
 
   useEffect(() => {
@@ -223,6 +227,7 @@ export default function App() {
 
   function renderPage() {
     if (page === "dashboard") return <Dashboard />;
+    if (page === "salesPOS") return <SalesPOS />;
     if (page === "stockDashboardSite") return <StockDashboardSite />;
     if (page === "stockDashboardGlobal") return <StockDashboardGlobal />;
 
@@ -257,6 +262,7 @@ export default function App() {
     if (page === "productsCatalog") return <ProductsCatalog />;
     if (page === "sites") return <Sites />;
     if (page === "warehouses") return <Warehouses />;
+    if (page === "terminals") return <Terminals />;
     if (page === "storageZones") return <StorageZones />;
     if (page === "units") return <Units />;
 
@@ -283,8 +289,14 @@ export default function App() {
   }
 
   return (
-    <AppLayout user={user} logout={logout} page={page} setPage={setPage}>
-      {renderPage()}
-    </AppLayout>
+<AppLayout
+  user={user}
+  logout={logout}
+  activeTerminal={activeTerminal}
+  page={page}
+  setPage={setPage}
+>
+  {renderPage()}
+</AppLayout>
   );
 }

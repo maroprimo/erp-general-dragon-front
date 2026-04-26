@@ -23,15 +23,24 @@ const emptyForm = {
   role: "admin",
   site_id: "",
   warehouse_id: "",
+  terminal_id: "",
   password: "",
   is_active: true,
 };
+
+function asArray(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.data)) return payload.data.data;
+  return [];
+}
 
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [warehouses, setWarehouses] = useState([]);
+  const [terminals, setTerminals] = useState([]);
 
   const [editingId, setEditingId] = useState(null);
   const [avatarFile, setAvatarFile] = useState(null);
@@ -43,15 +52,17 @@ export default function Users() {
     try {
       setLoading(true);
 
-      const [usersRes, sitesRes, warehousesRes] = await Promise.all([
+      const [usersRes, sitesRes, warehousesRes, terminalsRes] = await Promise.all([
         api.get("/users"),
         api.get("/sites"),
         api.get("/warehouses"),
+        api.get("/terminals"),
       ]);
 
       setUsers(usersRes.data?.data ?? usersRes.data ?? []);
       setSites(sitesRes.data?.data ?? sitesRes.data ?? []);
-      setWarehouses(warehousesRes.data?.data ?? warehousesRes.data ?? []);
+      setWarehouses(sitesRes?.data ? (warehousesRes.data?.data ?? warehousesRes.data ?? []) : []);
+      setTerminals(terminalsRes.data?.data ?? terminalsRes.data ?? []);
     } catch (err) {
       console.error(err);
       toast.error("Impossible de charger les utilisateurs");
@@ -85,66 +96,75 @@ export default function Users() {
     );
   }, [warehouses, form.site_id]);
 
+  const filteredTerminals = useMemo(() => {
+    let rows = terminals ?? [];
+
+    if (form.site_id) {
+      rows = rows.filter(
+        (terminal) => Number(terminal.site_id) === Number(form.site_id)
+      );
+    }
+
+    if (form.warehouse_id) {
+      rows = rows.filter(
+        (terminal) =>
+          !terminal.warehouse_id ||
+          Number(terminal.warehouse_id) === Number(form.warehouse_id)
+      );
+    }
+
+    return rows;
+  }, [terminals, form.site_id, form.warehouse_id]);
+
   const updateForm = (field, value) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value };
 
       if (field === "site_id") {
         next.warehouse_id = "";
+        next.terminal_id = "";
+      }
+
+      if (field === "warehouse_id") {
+        next.terminal_id = "";
       }
 
       return next;
     });
   };
 
-  /*
   const getAvatarSrc = (user) => {
-    if (user?.avatar_url) {
-      if (user.avatar_url.startsWith("http")) return user.avatar_url;
-      return `https://stock.dragonroyalmg.com${user.avatar_url}`;
+    const rawAvatarUrl = user?.avatar_url || "";
+    const rawAvatarPath = user?.avatar_path || "";
+
+    if (rawAvatarUrl && /^https?:\/\//i.test(rawAvatarUrl)) {
+      return rawAvatarUrl;
     }
 
-    if (user?.avatar_path) {
-      return `https://stock.dragonroyalmg.com/storage/${user.avatar_path}`;
+    if (rawAvatarPath) {
+      let cleanPath = String(rawAvatarPath).trim();
+
+      if (/^https?:\/\//i.test(cleanPath)) {
+        return cleanPath;
+      }
+
+      cleanPath = cleanPath.replace(/^\/+/, "");
+
+      if (cleanPath.startsWith("storage/")) {
+        return `https://stock.dragonroyalmg.com/${cleanPath}`;
+      }
+
+      if (cleanPath.startsWith("uploads/")) {
+        return `https://stock.dragonroyalmg.com/${cleanPath}`;
+      }
+
+      return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
     }
 
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(
       user?.name || user?.email || "User"
     )}`;
   };
-  */
-const getAvatarSrc = (user) => {
-  const rawAvatarUrl = user?.avatar_url || "";
-  const rawAvatarPath = user?.avatar_path || "";
-
-  if (rawAvatarUrl && /^https?:\/\//i.test(rawAvatarUrl)) {
-    return rawAvatarUrl;
-  }
-
-  if (rawAvatarPath) {
-    let cleanPath = String(rawAvatarPath).trim();
-
-    if (/^https?:\/\//i.test(cleanPath)) {
-      return cleanPath;
-    }
-
-    cleanPath = cleanPath.replace(/^\/+/, "");
-
-    if (cleanPath.startsWith("storage/")) {
-      return `https://stock.dragonroyalmg.com/${cleanPath}`;
-    }
-
-    if (cleanPath.startsWith("uploads/")) {
-      return `https://stock.dragonroyalmg.com/${cleanPath}`;
-    }
-
-    return `https://stock.dragonroyalmg.com/uploads/${cleanPath}`;
-  }
-
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(
-    user?.name || user?.email || "User"
-  )}`;
-};
 
   const getWarehouseLabel = (userItem) => {
     if (userItem?.warehouse?.name) return userItem.warehouse.name;
@@ -158,6 +178,20 @@ const getAvatarSrc = (user) => {
     if (userItem?.warehouse_id) return `Dépôt ID: ${userItem.warehouse_id}`;
 
     return "Aucun dépôt";
+  };
+
+  const getTerminalLabel = (userItem) => {
+    if (userItem?.terminal?.name) return userItem.terminal.name;
+
+    const match = (terminals ?? []).find(
+      (terminal) => Number(terminal.id) === Number(userItem?.terminal_id)
+    );
+
+    if (match?.name) return match.name;
+
+    if (userItem?.terminal_id) return `Poste ID: ${userItem.terminal_id}`;
+
+    return "Aucun poste";
   };
 
   const resetForm = () => {
@@ -178,6 +212,7 @@ const getAvatarSrc = (user) => {
       role: userItem.role || "admin",
       site_id: userItem.site_id ? String(userItem.site_id) : "",
       warehouse_id: userItem.warehouse_id ? String(userItem.warehouse_id) : "",
+      terminal_id: userItem.terminal_id ? String(userItem.terminal_id) : "",
       password: "",
       is_active: Boolean(userItem.is_active ?? true),
     });
@@ -210,6 +245,10 @@ const getAvatarSrc = (user) => {
 
       if (form.warehouse_id) {
         formData.append("warehouse_id", form.warehouse_id);
+      }
+
+      if (form.terminal_id) {
+        formData.append("terminal_id", form.terminal_id);
       }
 
       if (form.password) {
@@ -374,6 +413,19 @@ const getAvatarSrc = (user) => {
                 ))}
               </select>
 
+              <select
+                className="rounded-xl border p-3 md:col-span-2"
+                value={form.terminal_id}
+                onChange={(e) => updateForm("terminal_id", e.target.value)}
+              >
+                <option value="">Aucun poste</option>
+                {filteredTerminals.map((terminal) => (
+                  <option key={terminal.id} value={terminal.id}>
+                    {terminal.name} {terminal.code ? `(${terminal.code})` : ""}
+                  </option>
+                ))}
+              </select>
+
               <input
                 type="password"
                 className="rounded-xl border p-3 md:col-span-2"
@@ -506,6 +558,10 @@ const getAvatarSrc = (user) => {
 
                     <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700">
                       {getWarehouseLabel(userItem)}
+                    </span>
+
+                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                      {getTerminalLabel(userItem)}
                     </span>
 
                     <span
