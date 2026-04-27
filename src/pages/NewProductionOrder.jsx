@@ -15,6 +15,25 @@ const formatNumber = (value, digits = 3) => {
   });
 };
 
+const convertGramsToStockUnit = (gramsValue, stockUnitName) => {
+  const grams = Number(gramsValue ?? 0);
+  const unit = String(stockUnitName || "")
+    .trim()
+    .toLowerCase();
+
+  if (!Number.isFinite(grams) || grams <= 0) return 0;
+
+  if (["kg", "kgs", "kilogramme", "kilogrammes", "kilogram", "kilograms"].includes(unit)) {
+    return grams / 1000;
+  }
+
+  if (["g", "gr", "grs", "gramme", "grammes", "gram", "grams"].includes(unit)) {
+    return grams;
+  }
+
+  return grams;
+};
+
 export default function NewProductionOrder() {
   const { sites, warehouses, loading } = useReferences();
   const { user } = useAuth();
@@ -29,6 +48,11 @@ export default function NewProductionOrder() {
   const [maxPossibleForm, setMaxPossibleForm] = useState({
     ingredient1_id: "",
     ingredient2_id: "",
+  });
+
+  const [ingredientSimulationForm, setIngredientSimulationForm] = useState({
+    ingredient_id: "",
+    ingredient_quantity: "",
   });
 
   const [form, setForm] = useState({
@@ -96,6 +120,10 @@ export default function NewProductionOrder() {
       ingredient1_id: "",
       ingredient2_id: "",
     });
+    setIngredientSimulationForm({
+      ingredient_id: "",
+      ingredient_quantity: "",
+    });
     setMaxPossibleSimulation(null);
   }, [form.recipe_id]);
 
@@ -117,8 +145,73 @@ export default function NewProductionOrder() {
     return maxPossibleSimulation?.available_ingredients ?? [];
   }, [maxPossibleSimulation]);
 
+  const selectedIngredientSimulation = useMemo(() => {
+    return maxPossibleIngredientOptions.find(
+      (ingredient) =>
+        Number(ingredient.product_id) ===
+        Number(ingredientSimulationForm.ingredient_id)
+    );
+  }, [maxPossibleIngredientOptions, ingredientSimulationForm.ingredient_id]);
+
+  const simulatedPlannedQuantity = useMemo(() => {
+    const inputQuantityInGrams = Number(
+      ingredientSimulationForm.ingredient_quantity || 0
+    );
+    const quantityPerYield = Number(
+      selectedIngredientSimulation?.quantity_in_stock_unit_per_yield || 0
+    );
+    const yieldQuantity = Number(maxPossibleSimulation?.yield_quantity || 0);
+    const inputQuantityInStockUnit = convertGramsToStockUnit(
+      inputQuantityInGrams,
+      selectedIngredientSimulation?.stock_unit_name
+    );
+
+    if (
+      !ingredientSimulationForm.ingredient_id ||
+      !inputQuantityInGrams ||
+      inputQuantityInGrams <= 0 ||
+      !quantityPerYield ||
+      quantityPerYield <= 0 ||
+      !yieldQuantity ||
+      yieldQuantity <= 0 ||
+      !inputQuantityInStockUnit ||
+      inputQuantityInStockUnit <= 0
+    ) {
+      return "";
+    }
+
+    return String((inputQuantityInStockUnit / quantityPerYield) * yieldQuantity);
+  }, [
+    ingredientSimulationForm.ingredient_id,
+    ingredientSimulationForm.ingredient_quantity,
+    selectedIngredientSimulation,
+    maxPossibleSimulation?.yield_quantity,
+  ]);
+
+  const effectivePlannedQuantity = useMemo(() => {
+    return simulatedPlannedQuantity || form.planned_quantity;
+  }, [simulatedPlannedQuantity, form.planned_quantity]);
+
+  useEffect(() => {
+    if (!simulatedPlannedQuantity) return;
+
+    setForm((prev) =>
+      prev.planned_quantity === simulatedPlannedQuantity
+        ? prev
+        : { ...prev, planned_quantity: simulatedPlannedQuantity }
+    );
+  }, [simulatedPlannedQuantity]);
+
+
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleIngredientSimulationChange = (field, value) => {
+    setIngredientSimulationForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
   };
 
   const handleMaxPossibleIngredientChange = (field, value) => {
@@ -178,6 +271,10 @@ export default function NewProductionOrder() {
         ingredient1_id: "",
         ingredient2_id: "",
       });
+      setIngredientSimulationForm({
+        ingredient_id: "",
+        ingredient_quantity: "",
+      });
     } catch (err) {
       console.error(err);
       const errorMessage =
@@ -189,7 +286,7 @@ export default function NewProductionOrder() {
   };
 
   const simulateProduction = async () => {
-    if (!form.recipe_id || !form.site_id || !form.planned_quantity) {
+    if (!form.recipe_id || !form.site_id || !effectivePlannedQuantity) {
       setSimulation(null);
       return;
     }
@@ -201,7 +298,7 @@ export default function NewProductionOrder() {
         recipe_id: Number(form.recipe_id),
         site_id: Number(form.site_id),
         warehouse_id: form.warehouse_id ? Number(form.warehouse_id) : null,
-        planned_quantity: Number(form.planned_quantity),
+        planned_quantity: Number(effectivePlannedQuantity),
       };
 
       const res = await api.post("/production/orders/simulate", payload);
@@ -256,7 +353,13 @@ export default function NewProductionOrder() {
   useEffect(() => {
     simulateProduction();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.recipe_id, form.site_id, form.warehouse_id, form.planned_quantity]);
+  }, [
+    form.recipe_id,
+    form.site_id,
+    form.warehouse_id,
+    form.planned_quantity,
+    effectivePlannedQuantity,
+  ]);
 
   useEffect(() => {
     simulateMaxPossible();
@@ -325,6 +428,39 @@ export default function NewProductionOrder() {
             onChange={(e) => handleChange("planned_quantity", e.target.value)}
           />
 
+          <select
+            className="rounded-xl border p-3"
+            value={ingredientSimulationForm.ingredient_id}
+            onChange={(e) =>
+              handleIngredientSimulationChange("ingredient_id", e.target.value)
+            }
+          >
+            <option value="">
+              Simulation option 2 : choisir un ingrédient
+            </option>
+            {maxPossibleIngredientOptions.map((ingredient) => (
+              <option key={ingredient.product_id} value={ingredient.product_id}>
+                {ingredient.product_name}
+              </option>
+            ))}
+          </select>
+
+<input
+  type="number"
+  step="0.001"
+  placeholder="Qté ingrédient (ex: 4.5 pour 4500g)"
+  className="rounded-xl border p-3"
+  // Affiche la valeur en kg (ex: 4.5) si elle existe, sinon vide
+  value={ingredientSimulationForm.ingredient_quantity ? ingredientSimulationForm.ingredient_quantity / 1000 : ""}
+  onChange={(e) =>
+    handleIngredientSimulationChange(
+      "ingredient_quantity",
+      // Multiplie par 1000 pour enregistrer en grammes (ex: 4500)
+      e.target.value !== "" ? parseFloat(e.target.value) * 1000 : 0
+    )
+  }
+/>
+
           <input
             type="datetime-local"
             className="rounded-xl border p-3"
@@ -376,6 +512,27 @@ export default function NewProductionOrder() {
             Simulation ingrédients
           </h2>
 
+          {ingredientSimulationForm.ingredient_id &&
+          ingredientSimulationForm.ingredient_quantity &&
+          selectedIngredientSimulation &&
+          simulatedPlannedQuantity ? (
+            <div className="mb-4 rounded-xl bg-blue-50 p-4 text-sm text-blue-800">
+              Simulation basée sur{" "}
+              <span className="font-semibold">
+                {formatNumber(ingredientSimulationForm.ingredient_quantity)} g
+              </span>{" "}
+              de{" "}
+              <span className="font-semibold">
+                {selectedIngredientSimulation.product_name}
+              </span>
+              . Quantité prévue recalculée :{" "}
+              <span className="font-semibold">
+                {formatNumber(simulatedPlannedQuantity)}
+              </span>
+              .
+            </div>
+          ) : null}
+
           {simLoading ? (
             <div>Calcul en cours...</div>
           ) : (
@@ -426,208 +583,6 @@ export default function NewProductionOrder() {
         </div>
       )}
 
-      {form.recipe_id && form.site_id && (
-        <div className="mt-6 rounded-2xl bg-white p-6 shadow">
-          <div className="mb-4">
-            <h2 className="text-2xl font-bold text-slate-800">
-              Simulation quantité maximale possible
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Choisissez 1 ou 2 ingrédients pour déterminer la quantité
-              maximale fabricable selon le stock disponible.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <select
-              className="rounded-xl border p-3"
-              value={maxPossibleForm.ingredient1_id}
-              onChange={(e) =>
-                handleMaxPossibleIngredientChange(
-                  "ingredient1_id",
-                  e.target.value
-                )
-              }
-            >
-              <option value="">Choisir l’ingrédient 1</option>
-              {maxPossibleIngredientOptions.map((ingredient) => (
-                <option key={ingredient.product_id} value={ingredient.product_id}>
-                  {ingredient.product_name}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="rounded-xl border p-3"
-              value={maxPossibleForm.ingredient2_id}
-              onChange={(e) =>
-                handleMaxPossibleIngredientChange(
-                  "ingredient2_id",
-                  e.target.value
-                )
-              }
-            >
-              <option value="">Choisir l’ingrédient 2 (optionnel)</option>
-              {maxPossibleIngredientOptions
-                .filter(
-                  (ingredient) =>
-                    String(ingredient.product_id) !==
-                    String(maxPossibleForm.ingredient1_id)
-                )
-                .map((ingredient) => (
-                  <option
-                    key={ingredient.product_id}
-                    value={ingredient.product_id}
-                  >
-                    {ingredient.product_name}
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          {maxPossibleLoading && !maxPossibleSimulation ? (
-            <div className="mt-4">Chargement des ingrédients...</div>
-          ) : null}
-
-          {maxPossibleSimulation?.available_ingredients?.length > 0 && (
-            <div className="mt-6 overflow-x-auto">
-              <h3 className="mb-3 text-lg font-semibold text-slate-800">
-                Vue stock / capacité par ingrédient
-              </h3>
-
-              <table className="min-w-full text-left">
-                <thead className="border-b border-slate-200">
-                  <tr className="text-slate-600">
-                    <th className="px-4 py-3">Ingrédient</th>
-                    <th className="px-4 py-3">Besoin / rendement</th>
-                    <th className="px-4 py-3">Unité stock</th>
-                    <th className="px-4 py-3">Stock dispo</th>
-                    <th className="px-4 py-3">Qté max possible</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {maxPossibleSimulation.available_ingredients.map(
-                    (ingredient) => {
-                      const isSelected = selectedMaxIngredientIds.includes(
-                        Number(ingredient.product_id)
-                      );
-
-                      return (
-                        <tr
-                          key={ingredient.product_id}
-                          className={`border-b border-slate-100 ${
-                            isSelected
-                              ? "bg-amber-50 font-semibold text-amber-800"
-                              : "hover:bg-slate-50"
-                          }`}
-                        >
-                          <td className="px-4 py-3">{ingredient.product_name}</td>
-                          <td className="px-4 py-3">
-                            {formatNumber(
-                              ingredient.quantity_in_stock_unit_per_yield
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {ingredient.stock_unit_name}
-                          </td>
-                          <td className="px-4 py-3">
-                            {formatNumber(ingredient.stock_available)}
-                          </td>
-                          <td className="px-4 py-3">
-                            {formatNumber(ingredient.max_possible_quantity)}
-                          </td>
-                        </tr>
-                      );
-                    }
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {selectedMaxIngredientIds.length === 0 ? (
-            <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-slate-600">
-              Sélectionnez au moins un ingrédient pour calculer la quantité
-              maximale possible.
-            </div>
-          ) : maxPossibleLoading ? (
-            <div className="mt-4">Calcul en cours...</div>
-          ) : maxPossibleSimulation?.max_possible_quantity !== null ? (
-            <>
-              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-                <div className="rounded-2xl bg-slate-900 p-5 text-white">
-                  <div className="text-sm opacity-80">
-                    Quantité maximale possible
-                  </div>
-                  <div className="mt-2 text-3xl font-bold">
-                    {formatNumber(maxPossibleSimulation.max_possible_quantity)}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-amber-50 p-5 text-amber-900">
-                  <div className="text-sm opacity-80">Ingrédient limitant</div>
-                  <div className="mt-2 text-2xl font-bold">
-                    {maxPossibleSimulation.limiting_ingredient?.product_name ??
-                      "-"}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-emerald-50 p-5 text-emerald-900">
-                  <div className="text-sm opacity-80">Rendement fiche</div>
-                  <div className="mt-2 text-2xl font-bold">
-                    {formatNumber(maxPossibleSimulation.yield_quantity)}
-                  </div>
-                </div>
-              </div>
-
-              {maxPossibleSimulation.selected_ingredients?.length > 0 && (
-                <div className="mt-6 overflow-x-auto">
-                  <h3 className="mb-3 text-lg font-semibold text-slate-800">
-                    Ingrédients pris en compte
-                  </h3>
-
-                  <table className="min-w-full text-left">
-                    <thead className="border-b border-slate-200">
-                      <tr className="text-slate-600">
-                        <th className="px-4 py-3">Ingrédient</th>
-                        <th className="px-4 py-3">Besoin / rendement</th>
-                        <th className="px-4 py-3">Stock dispo</th>
-                        <th className="px-4 py-3">Qté max possible</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {maxPossibleSimulation.selected_ingredients.map((item) => (
-                        <tr
-                          key={item.product_id}
-                          className={`border-b border-slate-100 ${
-                            maxPossibleSimulation.limiting_ingredient
-                              ?.product_id === item.product_id
-                              ? "bg-red-50 font-semibold text-red-700"
-                              : "hover:bg-slate-50"
-                          }`}
-                        >
-                          <td className="px-4 py-3">{item.product_name}</td>
-                          <td className="px-4 py-3">
-                            {formatNumber(item.quantity_in_stock_unit_per_yield)}{" "}
-                            {item.stock_unit_name}
-                          </td>
-                          <td className="px-4 py-3">
-                            {formatNumber(item.stock_available)}{" "}
-                            {item.stock_unit_name}
-                          </td>
-                          <td className="px-4 py-3">
-                            {formatNumber(item.max_possible_quantity)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          ) : null}
-        </div>
-      )}
 
       {message && (
         <div className="mt-4 font-medium text-emerald-700">{message}</div>
