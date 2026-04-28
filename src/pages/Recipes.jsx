@@ -14,13 +14,8 @@ function emptyLine(sortOrder = 1) {
   };
 }
 
-export default function Recipes() {
-  const { products, loading } = useReferences();
-  const [units, setUnits] = useState([]);
-  const [recipes, setRecipes] = useState([]);
-  const [selectedRecipe, setSelectedRecipe] = useState(null);
-
-  const [form, setForm] = useState({
+function initialFormState() {
+  return {
     code: "",
     product_id: "",
     version: 1,
@@ -34,7 +29,26 @@ export default function Recipes() {
     status: "draft",
     notes: "",
     lines: [emptyLine(1)],
+  };
+}
+
+const formatMoney = (value) => {
+  const amount = Number(value ?? 0);
+
+  return amount.toLocaleString("fr-FR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
+};
+
+export default function Recipes() {
+  const { products, loading } = useReferences();
+  const [units, setUnits] = useState([]);
+  const [recipes, setRecipes] = useState([]);
+  const [selectedRecipe, setSelectedRecipe] = useState(null);
+  const [editingRecipeId, setEditingRecipeId] = useState(null);
+
+  const [form, setForm] = useState(initialFormState());
 
   const loadRecipes = async () => {
     try {
@@ -60,6 +74,11 @@ export default function Recipes() {
     loadRecipes();
     loadUnits();
   }, []);
+
+  const resetForm = () => {
+    setEditingRecipeId(null);
+    setForm(initialFormState());
+  };
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -96,68 +115,67 @@ export default function Recipes() {
     });
   };
 
-  const createRecipe = async (e) => {
+  const buildPayload = () => ({
+    code: form.code,
+    product_id: Number(form.product_id),
+    version: Number(form.version),
+    standard_batch_size: Number(form.standard_batch_size),
+    yield_unit_id: Number(form.yield_unit_id),
+    yield_quantity: Number(form.yield_quantity),
+    expected_yield_rate: form.expected_yield_rate
+      ? Number(form.expected_yield_rate)
+      : null,
+    standard_loss_rate: form.standard_loss_rate
+      ? Number(form.standard_loss_rate)
+      : null,
+    standard_duration_minutes: form.standard_duration_minutes
+      ? Number(form.standard_duration_minutes)
+      : null,
+    allowed_variance_percent: Number(form.allowed_variance_percent),
+    status: form.status,
+    notes: form.notes,
+    lines: (form.lines || [])
+      .filter(
+        (line) => line?.ingredient_product_id && line?.quantity && line?.unit_id
+      )
+      .map((line, index) => ({
+        ingredient_product_id: Number(line.ingredient_product_id),
+        quantity: Number(line.quantity),
+        unit_id: Number(line.unit_id),
+        line_type: line.line_type || "ingredient",
+        sort_order: index + 1,
+      })),
+  });
+
+  const saveRecipe = async (e) => {
     e.preventDefault();
 
     try {
-      const payload = {
-        code: form.code,
-        product_id: Number(form.product_id),
-        version: Number(form.version),
-        standard_batch_size: Number(form.standard_batch_size),
-        yield_unit_id: Number(form.yield_unit_id),
-        yield_quantity: Number(form.yield_quantity),
-        expected_yield_rate: form.expected_yield_rate
-          ? Number(form.expected_yield_rate)
-          : null,
-        standard_loss_rate: form.standard_loss_rate
-          ? Number(form.standard_loss_rate)
-          : null,
-        standard_duration_minutes: form.standard_duration_minutes
-          ? Number(form.standard_duration_minutes)
-          : null,
-        allowed_variance_percent: Number(form.allowed_variance_percent),
-        status: form.status,
-        notes: form.notes,
-        lines: (form.lines || [])
-          .filter(
-            (line) =>
-              line?.ingredient_product_id &&
-              line?.quantity &&
-              line?.unit_id
-          )
-          .map((line, index) => ({
-            ingredient_product_id: Number(line.ingredient_product_id),
-            quantity: Number(line.quantity),
-            unit_id: Number(line.unit_id),
-            line_type: line.line_type || "ingredient",
-            sort_order: index + 1,
-          })),
-      };
+      const payload = buildPayload();
+      const res = editingRecipeId
+        ? await api.put(`/recipes-admin/${editingRecipeId}`, payload)
+        : await api.post("/recipes-admin", payload);
 
-      const res = await api.post("/recipes-admin", payload);
-      toast.success(res.data.message || "Fiche technique créée");
+      toast.success(
+        res.data.message ||
+          (editingRecipeId
+            ? "Fiche technique mise à jour"
+            : "Fiche technique créée")
+      );
 
-      setForm({
-        code: "",
-        product_id: "",
-        version: 1,
-        standard_batch_size: "",
-        yield_unit_id: "",
-        yield_quantity: "",
-        expected_yield_rate: "",
-        standard_loss_rate: "",
-        standard_duration_minutes: "",
-        allowed_variance_percent: 5,
-        status: "draft",
-        notes: "",
-        lines: [emptyLine(1)],
-      });
-
+      resetForm();
       loadRecipes();
+
+      if (editingRecipeId) {
+        openRecipe(editingRecipeId);
+      }
     } catch (err) {
       console.error(err);
-      toast.error("Erreur création fiche technique");
+      toast.error(
+        editingRecipeId
+          ? "Erreur modification fiche technique"
+          : "Erreur création fiche technique"
+      );
     }
   };
 
@@ -168,6 +186,71 @@ export default function Recipes() {
     } catch (err) {
       console.error(err);
       toast.error("Impossible d’ouvrir la fiche technique");
+    }
+  };
+
+  const startEditRecipe = async (id) => {
+    try {
+      const res = await api.get(`/recipes-admin/${id}`);
+      const recipe = res.data;
+
+      setEditingRecipeId(recipe.id);
+      setSelectedRecipe(recipe);
+      setForm({
+        code: recipe.code || "",
+        product_id: recipe.product_id ? String(recipe.product_id) : "",
+        version: recipe.version ?? 1,
+        standard_batch_size: recipe.standard_batch_size ?? "",
+        yield_unit_id: recipe.yield_unit_id ? String(recipe.yield_unit_id) : "",
+        yield_quantity: recipe.yield_quantity ?? "",
+        expected_yield_rate: recipe.expected_yield_rate ?? "",
+        standard_loss_rate: recipe.standard_loss_rate ?? "",
+        standard_duration_minutes: recipe.standard_duration_minutes ?? "",
+        allowed_variance_percent: recipe.allowed_variance_percent ?? 5,
+        status: recipe.status || "draft",
+        notes: recipe.notes || "",
+        lines:
+          (recipe.lines ?? []).length > 0
+            ? recipe.lines.map((line, index) => ({
+                ingredient_product_id: line.ingredient_product_id
+                  ? String(line.ingredient_product_id)
+                  : "",
+                quantity: line.quantity ?? "",
+                unit_id: line.unit_id ? String(line.unit_id) : "",
+                line_type: line.line_type || "ingredient",
+                sort_order: line.sort_order ?? index + 1,
+              }))
+            : [emptyLine(1)],
+      });
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      console.error(err);
+      toast.error("Impossible de charger la fiche pour modification");
+    }
+  };
+
+  const deleteRecipe = async (id) => {
+    if (!window.confirm("Supprimer cette fiche technique ?")) {
+      return;
+    }
+
+    try {
+      const res = await api.delete(`/recipes-admin/${id}`);
+      toast.success(res.data.message || "Fiche technique supprimée");
+
+      if (selectedRecipe?.id === id) {
+        setSelectedRecipe(null);
+      }
+
+      if (editingRecipeId === id) {
+        resetForm();
+      }
+
+      loadRecipes();
+    } catch (err) {
+      console.error(err);
+      toast.error("Erreur suppression fiche technique");
     }
   };
 
@@ -185,8 +268,18 @@ export default function Recipes() {
 
   const showCost = async (id) => {
     try {
+      const currentRecipe = recipes.find((recipe) => recipe.id === id);
+
+      if (currentRecipe?.theoretical_cost != null) {
+        toast.success(
+          `Coût théorique : ${formatMoney(currentRecipe.theoretical_cost)} Ar`
+        );
+        return;
+      }
+
       const res = await api.get(`/recipes-admin/${id}/theoretical-cost`);
-      toast.success(`Coût théorique : ${res.data.theoretical_cost} Ar`);
+      toast.success(`Coût théorique : ${formatMoney(res.data.theoretical_cost)} Ar`);
+      loadRecipes();
     } catch (err) {
       console.error(err);
       toast.error("Impossible de calculer le coût théorique");
@@ -207,11 +300,23 @@ export default function Recipes() {
       </div>
 
       <div className="rounded-2xl bg-white p-6 shadow">
-        <h2 className="mb-4 text-2xl font-bold text-slate-800">
-          Nouvelle fiche technique
-        </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-2xl font-bold text-slate-800">
+            {editingRecipeId ? "Modifier la fiche technique" : "Nouvelle fiche technique"}
+          </h2>
 
-        <form onSubmit={createRecipe} className="space-y-6">
+          {editingRecipeId && (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-xl bg-slate-200 px-4 py-2 text-slate-800"
+            >
+              Annuler la modification
+            </button>
+          )}
+        </div>
+
+        <form onSubmit={saveRecipe} className="space-y-6">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <input
               className="rounded-xl border p-3"
@@ -247,9 +352,7 @@ export default function Recipes() {
               step="0.001"
               placeholder="Batch standard"
               value={form.standard_batch_size}
-              onChange={(e) =>
-                handleChange("standard_batch_size", e.target.value)
-              }
+              onChange={(e) => handleChange("standard_batch_size", e.target.value)}
             />
 
             <select
@@ -280,9 +383,7 @@ export default function Recipes() {
               step="0.001"
               placeholder="Rendement attendu (%)"
               value={form.expected_yield_rate}
-              onChange={(e) =>
-                handleChange("expected_yield_rate", e.target.value)
-              }
+              onChange={(e) => handleChange("expected_yield_rate", e.target.value)}
             />
 
             <input
@@ -291,9 +392,7 @@ export default function Recipes() {
               step="0.001"
               placeholder="Perte standard (%)"
               value={form.standard_loss_rate}
-              onChange={(e) =>
-                handleChange("standard_loss_rate", e.target.value)
-              }
+              onChange={(e) => handleChange("standard_loss_rate", e.target.value)}
             />
 
             <input
@@ -301,9 +400,7 @@ export default function Recipes() {
               type="number"
               placeholder="Durée standard (minutes)"
               value={form.standard_duration_minutes}
-              onChange={(e) =>
-                handleChange("standard_duration_minutes", e.target.value)
-              }
+              onChange={(e) => handleChange("standard_duration_minutes", e.target.value)}
             />
 
             <input
@@ -312,9 +409,7 @@ export default function Recipes() {
               step="0.001"
               placeholder="Tolérance (%)"
               value={form.allowed_variance_percent}
-              onChange={(e) =>
-                handleChange("allowed_variance_percent", e.target.value)
-              }
+              onChange={(e) => handleChange("allowed_variance_percent", e.target.value)}
             />
 
             <select
@@ -336,9 +431,7 @@ export default function Recipes() {
 
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-slate-800">
-                Ingrédients
-              </h3>
+              <h3 className="text-xl font-semibold text-slate-800">Ingrédients</h3>
               <button
                 type="button"
                 onClick={addLine}
@@ -375,9 +468,7 @@ export default function Recipes() {
                     step="0.001"
                     placeholder="Quantité"
                     value={line.quantity}
-                    onChange={(e) =>
-                      updateLine(index, "quantity", e.target.value)
-                    }
+                    onChange={(e) => updateLine(index, "quantity", e.target.value)}
                   />
 
                   <select
@@ -396,9 +487,7 @@ export default function Recipes() {
                   <input
                     className="rounded-xl border p-3"
                     value={line.line_type}
-                    onChange={(e) =>
-                      updateLine(index, "line_type", e.target.value)
-                    }
+                    onChange={(e) => updateLine(index, "line_type", e.target.value)}
                     placeholder="ingredient"
                   />
 
@@ -415,7 +504,9 @@ export default function Recipes() {
           </div>
 
           <button className="rounded-xl bg-slate-900 px-4 py-3 text-white">
-            Enregistrer la fiche technique
+            {editingRecipeId
+              ? "Mettre à jour la fiche technique"
+              : "Enregistrer la fiche technique"}
           </button>
         </form>
       </div>
@@ -429,7 +520,7 @@ export default function Recipes() {
           {recipes.map((recipe) => (
             <div
               key={recipe.id}
-              className="flex items-center justify-between rounded-xl border border-slate-200 p-4"
+              className="flex flex-col gap-4 rounded-xl border border-slate-200 p-4 xl:flex-row xl:items-center xl:justify-between"
             >
               <div>
                 <div className="font-semibold text-slate-800">
@@ -438,14 +529,29 @@ export default function Recipes() {
                 <div className="text-sm text-slate-500">
                   version {recipe.version} / statut : {recipe.status}
                 </div>
+                <div className="mt-1 text-sm font-medium text-slate-700">
+                  Coût théorique : {formatMoney(recipe.theoretical_cost)} Ar
+                </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => openRecipe(recipe.id)}
                   className="rounded-xl bg-blue-600 px-4 py-2 text-white"
                 >
                   Ouvrir
+                </button>
+                <button
+                  onClick={() => startEditRecipe(recipe.id)}
+                  className="rounded-xl bg-amber-500 px-4 py-2 text-white"
+                >
+                  Modifier
+                </button>
+                <button
+                  onClick={() => deleteRecipe(recipe.id)}
+                  className="rounded-xl bg-red-600 px-4 py-2 text-white"
+                >
+                  Supprimer
                 </button>
                 <button
                   onClick={() => showCost(recipe.id)}
@@ -469,11 +575,28 @@ export default function Recipes() {
 
       {selectedRecipe && (
         <div className="rounded-2xl bg-white p-6 shadow">
-          <h2 className="mb-4 text-2xl font-bold text-slate-800">
-            Détail recette : {selectedRecipe.code}
-          </h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-2xl font-bold text-slate-800">
+              Détail recette : {selectedRecipe.code}
+            </h2>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => startEditRecipe(selectedRecipe.id)}
+                className="rounded-xl bg-amber-500 px-4 py-2 text-white"
+              >
+                Modifier
+              </button>
+              <button
+                onClick={() => deleteRecipe(selectedRecipe.id)}
+                className="rounded-xl bg-red-600 px-4 py-2 text-white"
+              >
+                Supprimer
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl bg-slate-50 p-4">
               <div className="text-sm text-slate-500">Produit fini</div>
               <div className="font-semibold text-slate-800">
@@ -484,8 +607,7 @@ export default function Recipes() {
             <div className="rounded-xl bg-slate-50 p-4">
               <div className="text-sm text-slate-500">Rendement</div>
               <div className="font-semibold text-slate-800">
-                {formatQty(selectedRecipe.yield_quantity)}{" "}
-                {selectedRecipe.yield_unit?.name ?? ""}
+                {formatQty(selectedRecipe.yield_quantity)} {selectedRecipe.yield_unit?.name ?? ""}
               </div>
             </div>
 
@@ -493,6 +615,13 @@ export default function Recipes() {
               <div className="text-sm text-slate-500">Durée standard</div>
               <div className="font-semibold text-slate-800">
                 {selectedRecipe.standard_duration_minutes ?? 0} min
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-4">
+              <div className="text-sm text-slate-500">Coût théorique</div>
+              <div className="font-semibold text-slate-800">
+                {formatMoney(selectedRecipe.theoretical_cost)} Ar
               </div>
             </div>
           </div>
@@ -509,10 +638,7 @@ export default function Recipes() {
               </thead>
               <tbody>
                 {(selectedRecipe.lines ?? []).map((line) => (
-                  <tr
-                    key={line.id}
-                    className="border-b border-slate-100 hover:bg-slate-50"
-                  >
+                  <tr key={line.id} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-3">{line.ingredient?.name ?? "-"}</td>
                     <td className="px-4 py-3">{formatQty(line.quantity)}</td>
                     <td className="px-4 py-3">{line.unit?.name ?? "-"}</td>
