@@ -112,8 +112,14 @@ export default function ProductionActions() {
               warehouse_id: order?.warehouse_id ?? "",
               storage_location_id: "",
               actual_quantity:
-                Number(line.quantity_in_stock_unit || line.quantity || 0) * factor,
-              unit_cost: "",
+                Number(
+                  line.theoretical_quantity_in_stock_unit ??
+                    Number(line.quantity_in_stock_unit || line.quantity || 0) * factor
+                ),
+              unit_cost:
+                line.unit_cost != null && line.unit_cost !== ""
+                  ? String(line.unit_cost)
+                  : "",
               notes: "Théorique fiche technique",
             }))
           : [
