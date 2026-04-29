@@ -64,6 +64,11 @@ const MENU_GROUPS = [
     "Caisse tactile moderne, ticket rapide, préparation des futures liaisons stock, cuisine et encaissement.",
 items: [
   {
+  key: "cashDashboard",
+  label: "Dashboard caisse",
+  roles: ["pdg", "admin"],
+  },
+  {
     key: "salesPOS",
     label: "POS Vente",
     roles: ["pdg", "admin"],

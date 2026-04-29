@@ -88,6 +88,38 @@ export default function SalesPOS() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [paymentLines, setPaymentLines] = useState([]);
 
+  const [cashSession, setCashSession] = useState(null);
+  const [cashSessionLoading, setCashSessionLoading] = useState(false);
+
+
+  const loadCashSession = async () => {
+  if (!activeTerminal?.id) {
+    setCashSession(null);
+    return null;
+  }
+
+  try {
+    setCashSessionLoading(true);
+
+    const res = await api.get("/cash-sessions/current", {
+      params: {
+        terminal_id: activeTerminal.id,
+      },
+    });
+
+    const session = res.data?.data || null;
+    setCashSession(session);
+
+    return session;
+  } catch (err) {
+    console.error(err);
+    setCashSession(null);
+    return null;
+  } finally {
+    setCashSessionLoading(false);
+  }
+};
+
   const storageKey = useMemo(() => {
     return `sales_pos_draft_${user?.id || "guest"}_${
       activeTerminal?.id || "no-terminal"
@@ -152,6 +184,12 @@ export default function SalesPOS() {
       setCatalogLoading(false);
     }
   };
+
+  useEffect(() => {
+  loadCashSession();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [activeTerminal?.id]);
+
 
   useEffect(() => {
     try {
@@ -311,23 +349,31 @@ export default function SalesPOS() {
     toast.success("Brouillon réinitialisé");
   };
 
-  const openCheckoutWithMethod = (method) => {
-    if (!draft.lines.length) {
-      toast.error("Le ticket est vide");
-      return;
-    }
+const openCheckoutWithMethod = async (method) => {
+  if (!draft.lines.length) {
+    toast.error("Le ticket est vide");
+    return;
+  }
 
-    setPaymentLines([
-      {
-        payment_method: method,
-        amount: subtotal,
-        received_amount: subtotal,
-        reference: "",
-        notes: "",
-      },
-    ]);
-    setCheckoutOpen(true);
-  };
+  const session = cashSession || (await loadCashSession());
+
+  if (!session) {
+    toast.error("Veuillez ouvrir la caisse avant d'encaisser.");
+    return;
+  }
+
+  setPaymentLines([
+    {
+      payment_method: method,
+      amount: subtotal,
+      received_amount: subtotal,
+      reference: "",
+      notes: "",
+    },
+  ]);
+
+  setCheckoutOpen(true);
+};
 
   const addPaymentLine = () => {
     setPaymentLines((prev) => [
@@ -366,6 +412,17 @@ export default function SalesPOS() {
     if (!draft.lines.length) {
       toast.error("Le ticket est vide");
       return;
+    }
+
+    let activeCashSession = cashSession;
+
+    if (withPayments) {
+      activeCashSession = cashSession || (await loadCashSession());
+
+      if (!activeCashSession) {
+        toast.error("Aucune caisse ouverte sur ce poste. Encaissement impossible.");
+        return;
+      }
     }
 
     try {
@@ -413,6 +470,7 @@ export default function SalesPOS() {
             reference: line.reference || null,
             notes: line.notes || null,
             terminal_id: activeTerminal?.id || null,
+            cash_session_id: activeCashSession?.id || null,
           };
 
           await api.post(`/sales/${sale.id}/payments`, paymentPayload);
@@ -664,12 +722,38 @@ export default function SalesPOS() {
       </div>
 
       <div className="mt-3 grid grid-cols-1 gap-2">
-        <button
-          onClick={() => setCheckoutOpen(true)}
-          className="rounded-2xl bg-slate-800 px-4 py-4 text-sm font-black text-white"
-        >
-          Encaisser / paiement mixte
-        </button>
+<button
+  onClick={async () => {
+    if (!draft.lines.length) {
+      toast.error("Le ticket est vide");
+      return;
+    }
+
+    const session = cashSession || (await loadCashSession());
+
+    if (!session) {
+      toast.error("Veuillez ouvrir la caisse avant d'encaisser.");
+      return;
+    }
+
+    if (paymentLines.length === 0) {
+      setPaymentLines([
+        {
+          payment_method: "cash",
+          amount: subtotal,
+          received_amount: subtotal,
+          reference: "",
+          notes: "",
+        },
+      ]);
+    }
+
+    setCheckoutOpen(true);
+  }}
+  className="rounded-2xl bg-slate-800 px-4 py-4 text-sm font-black text-white"
+>
+  Encaisser / paiement mixte
+</button>
 
         <button
           onClick={() => validateSale(false)}
@@ -726,6 +810,27 @@ export default function SalesPOS() {
         {catalogError && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             {catalogError}
+          </div>
+        )}
+
+        {cashSessionLoading && (
+          <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+            Vérification de la caisse ouverte...
+          </div>
+        )}
+
+        {!cashSessionLoading && !cashSession && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            Aucune caisse ouverte sur ce poste. Vous pouvez préparer un ticket, mais l’encaissement est bloqué.
+          </div>
+        )}
+
+        {!cashSessionLoading && cashSession && (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+            Caisse ouverte : <strong>{cashSession.session_number}</strong> — fonds initial :{" "}
+            <strong>
+              {Number(cashSession.opening_cash_amount || 0).toLocaleString("fr-FR")} Ar
+            </strong>
           </div>
         )}
 

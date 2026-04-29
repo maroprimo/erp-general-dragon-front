@@ -47,6 +47,7 @@ import SalesPOS from "./pages/SalesPOS";
 import PosMenuItems from "./pages/PosMenuItems";
 import SalesHistory from "./pages/SalesHistory";
 import CashSessions from "./pages/CashSessions";
+import CashDashboard from "./pages/CashDashboard";
 
 const PAGE_ACCESS = {
   dashboard: ["pdg", "admin"],
@@ -239,6 +240,7 @@ const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
     if (page === "cashSessions") return <CashSessions />;
     if (page === "stockDashboardSite") return <StockDashboardSite />;
     if (page === "stockDashboardGlobal") return <StockDashboardGlobal />;
+    if (page === "cashDashboard") return <CashDashboard />;
 
     if (page === "stock") return <Stock />;
     if (page === "stockLosses") return <StockLosses />;
