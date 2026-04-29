@@ -11,6 +11,149 @@ function asArray(payload) {
   return [];
 }
 
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return 0;
+}
+
+function getUnitRatio(unitsById, unitId) {
+  const unit = unitsById.get(Number(unitId));
+  const ratio = Number(unit?.ratio_base ?? 0);
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : 1;
+}
+
+function getUnitLabel(unitsById, unitId, fallback = "") {
+  if (!unitId) return fallback;
+  const unit = unitsById.get(Number(unitId));
+  return unit?.symbol || unit?.name || fallback || "";
+}
+
+function convertUnitAmount(amount, fromUnitId, toUnitId, unitsById) {
+  const numericAmount = Number(amount ?? 0);
+
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) return 0;
+  if (!fromUnitId || !toUnitId || Number(fromUnitId) === Number(toUnitId)) {
+    return numericAmount;
+  }
+
+  const fromRatio = getUnitRatio(unitsById, fromUnitId);
+  const toRatio = getUnitRatio(unitsById, toUnitId);
+
+  if (!Number.isFinite(fromRatio) || !Number.isFinite(toRatio) || toRatio <= 0) {
+    return numericAmount;
+  }
+
+  return numericAmount * (fromRatio / toRatio);
+}
+
+function resolveProductUnitIds(product) {
+  return {
+    purchaseUnitId: Number(
+      product?.purchase_unit_id ?? product?.purchase_unit?.id ?? 0
+    ) || null,
+    stockUnitId: Number(
+      product?.stock_unit_id ?? product?.stock_unit?.id ?? 0
+    ) || null,
+  };
+}
+
+function resolveProductUnitPrice(product, targetUnitId, unitsById) {
+  const { purchaseUnitId, stockUnitId } = resolveProductUnitIds(product);
+
+  const lastPurchasePrice = firstFiniteNumber(
+    product?.last_purchase_price,
+    product?.last_unit_price,
+    product?.latest_purchase_price,
+    product?.lastPurchasePrice,
+    product?.last_purchase?.unit_price
+  );
+
+  if (lastPurchasePrice > 0) {
+    return {
+      price: convertUnitAmount(
+        lastPurchasePrice,
+        purchaseUnitId || targetUnitId,
+        targetUnitId || purchaseUnitId,
+        unitsById
+      ),
+      source: "last_purchase",
+    };
+  }
+
+  const averageUnitCost = firstFiniteNumber(
+    product?.average_unit_cost,
+    product?.stock_average_unit_cost,
+    product?.average_cost,
+    product?.avg_cost
+  );
+
+  if (averageUnitCost > 0) {
+    return {
+      price: convertUnitAmount(
+        averageUnitCost,
+        stockUnitId || targetUnitId,
+        targetUnitId || stockUnitId,
+        unitsById
+      ),
+      source: "average_unit_cost",
+    };
+  }
+
+  return { price: 0, source: "none" };
+}
+
+function buildProductUnitOptions(product, unitsById) {
+  const { purchaseUnitId, stockUnitId } = resolveProductUnitIds(product);
+  const options = [];
+  const seen = new Set();
+
+  [
+    { id: purchaseUnitId, kind: "purchase", label: getUnitLabel(unitsById, purchaseUnitId, product?.purchase_unit_name || "") },
+    { id: stockUnitId, kind: "stock", label: getUnitLabel(unitsById, stockUnitId, product?.stock_unit_name || "") },
+  ].forEach((item) => {
+    if (!item.id || seen.has(Number(item.id))) return;
+    seen.add(Number(item.id));
+    options.push(item);
+  });
+
+  return options;
+}
+
+const INITIAL_QUICK_PRODUCT_FORM = {
+  code: "",
+  barcode: "",
+  name: "",
+  short_name: "",
+  category_id: "",
+  product_type: "",
+  purchase_unit_id: "",
+  stock_unit_id: "",
+  production_unit_id: "",
+  sale_unit_id: "",
+  main_supplier_id: "",
+  shelf_life_days: "",
+  min_stock: "",
+  max_stock: "",
+  safety_stock: "",
+  reorder_point: "",
+  reorder_qty: "",
+  storage_condition: "",
+  origin: "",
+  genre: "",
+  category_type: "",
+  nature: "",
+  cold_type: "",
+  valuation_method: "",
+  default_storage_location_id: "",
+  has_batch: false,
+  has_expiry_date: false,
+  is_active: true,
+};
+
 function useIsMobile(breakpoint = 1023) {
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -40,30 +183,23 @@ function useIsMobile(breakpoint = 1023) {
   return isMobile;
 }
 
-function QuickProductModal({ open, onClose, categories, units, onCreated, isMobile }) {
-  const [form, setForm] = useState({
-    code: "",
-    name: "",
-    category_id: "",
-    product_type: "raw_material",
-    purchase_unit_id: "",
-    sale_unit_id: "",
-    stock_unit_id: "",
-    is_active: true,
-  });
+function QuickProductModal({
+  open,
+  onClose,
+  categories,
+  suppliers,
+  locations,
+  units,
+  onCreated,
+  isMobile,
+}) {
+  const [form, setForm] = useState(INITIAL_QUICK_PRODUCT_FORM);
+  const [image, setImage] = useState(null);
 
   useEffect(() => {
     if (!open) {
-      setForm({
-        code: "",
-        name: "",
-        category_id: "",
-        product_type: "raw_material",
-        purchase_unit_id: "",
-        sale_unit_id: "",
-        stock_unit_id: "",
-        is_active: true,
-      });
+      setForm(INITIAL_QUICK_PRODUCT_FORM);
+      setImage(null);
     }
   }, [open]);
 
@@ -84,16 +220,30 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
     e.preventDefault();
 
     try {
-      const payload = {
-        ...form,
-        category_id: form.category_id ? Number(form.category_id) : null,
-        purchase_unit_id: form.purchase_unit_id ? Number(form.purchase_unit_id) : null,
-        sale_unit_id: form.sale_unit_id ? Number(form.sale_unit_id) : null,
-        stock_unit_id: form.stock_unit_id ? Number(form.stock_unit_id) : null,
-        is_active: Boolean(form.is_active),
-      };
+      const payload = new FormData();
 
-      const res = await api.post("/purchase-pos/quick-product", payload);
+      Object.entries(form).forEach(([key, value]) => {
+        payload.append(key, value ?? "");
+      });
+
+      payload.set("category_id", form.category_id || "");
+      payload.set("purchase_unit_id", form.purchase_unit_id || "");
+      payload.set("stock_unit_id", form.stock_unit_id || "");
+      payload.set("production_unit_id", form.production_unit_id || "");
+      payload.set("sale_unit_id", form.sale_unit_id || "");
+      payload.set("main_supplier_id", form.main_supplier_id || "");
+      payload.set("default_storage_location_id", form.default_storage_location_id || "");
+      payload.set("has_batch", form.has_batch ? "1" : "0");
+      payload.set("has_expiry_date", form.has_expiry_date ? "1" : "0");
+      payload.set("is_active", form.is_active ? "1" : "0");
+
+      if (image) {
+        payload.append("image", image);
+      }
+
+      const res = await api.post("/purchase-pos/quick-product", payload, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
       toast.success(res.data?.message || "Produit créé");
       onCreated(res.data?.data);
       onClose();
@@ -109,7 +259,7 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
         className={`${
           isMobile
             ? "absolute inset-0 h-full w-full rounded-none bg-white"
-            : "mx-auto mt-8 w-full max-w-3xl rounded-2xl bg-white shadow-2xl"
+            : "mx-auto mt-8 flex max-h-[92vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl"
         }`}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 md:px-6">
@@ -129,7 +279,7 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
           </button>
         </div>
 
-        <div className={`${isMobile ? "h-[calc(100%-80px)] overflow-y-auto" : ""}`}>
+        <div className={`${isMobile ? "h-[calc(100%-80px)] overflow-y-auto" : "flex-1 overflow-y-auto"}`}>
           <form onSubmit={submit} className="grid grid-cols-1 gap-4 p-4 md:grid-cols-2 md:p-6">
             <input
               className="rounded-xl border p-3"
@@ -140,10 +290,35 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
 
             <input
               className="rounded-xl border p-3"
+              placeholder="Code-barres"
+              value={form.barcode}
+              onChange={(e) => setForm((p) => ({ ...p, barcode: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3 md:col-span-2"
               placeholder="Nom produit"
               value={form.name}
               onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
             />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Nom court"
+              value={form.short_name}
+              onChange={(e) => setForm((p) => ({ ...p, short_name: e.target.value }))}
+            />
+
+            <select
+              className="rounded-xl border p-3"
+              value={form.product_type}
+              onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
+            >
+              <option value="">Type de produit</option>
+              <option value="storable">Stockable</option>
+              <option value="consumable">Consommable</option>
+              <option value="service">Service</option>
+            </select>
 
             <select
               className="rounded-xl border p-3"
@@ -157,13 +332,6 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
                 </option>
               ))}
             </select>
-
-            <input
-              className="rounded-xl border p-3"
-              placeholder="Type produit"
-              value={form.product_type}
-              onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
-            />
 
             <select
               className="rounded-xl border p-3"
@@ -193,6 +361,19 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
 
             <select
               className="rounded-xl border p-3"
+              value={form.production_unit_id}
+              onChange={(e) => setForm((p) => ({ ...p, production_unit_id: e.target.value }))}
+            >
+              <option value="">Unité production</option>
+              {units.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border p-3"
               value={form.sale_unit_id}
               onChange={(e) => setForm((p) => ({ ...p, sale_unit_id: e.target.value }))}
             >
@@ -204,7 +385,156 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
               ))}
             </select>
 
+            <select
+              className="rounded-xl border p-3"
+              value={form.main_supplier_id}
+              onChange={(e) => setForm((p) => ({ ...p, main_supplier_id: e.target.value }))}
+            >
+              <option value="">Fournisseur principal</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.company_name || supplier.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="rounded-xl border p-3"
+              value={form.default_storage_location_id}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, default_storage_location_id: e.target.value }))
+              }
+            >
+              <option value="">Emplacement par défaut</option>
+              {locations.map((location) => (
+                <option key={location.id} value={location.id}>
+                  {location.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Durée de vie (jours)"
+              value={form.shelf_life_days}
+              onChange={(e) => setForm((p) => ({ ...p, shelf_life_days: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Stock minimum"
+              value={form.min_stock}
+              onChange={(e) => setForm((p) => ({ ...p, min_stock: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Stock maximum"
+              value={form.max_stock}
+              onChange={(e) => setForm((p) => ({ ...p, max_stock: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Stock de sécurité"
+              value={form.safety_stock}
+              onChange={(e) => setForm((p) => ({ ...p, safety_stock: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Point de commande"
+              value={form.reorder_point}
+              onChange={(e) => setForm((p) => ({ ...p, reorder_point: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Qté de réappro"
+              value={form.reorder_qty}
+              onChange={(e) => setForm((p) => ({ ...p, reorder_qty: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Condition de stockage"
+              value={form.storage_condition}
+              onChange={(e) => setForm((p) => ({ ...p, storage_condition: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Origine"
+              value={form.origin}
+              onChange={(e) => setForm((p) => ({ ...p, origin: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Genre"
+              value={form.genre}
+              onChange={(e) => setForm((p) => ({ ...p, genre: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Type de catégorie"
+              value={form.category_type}
+              onChange={(e) => setForm((p) => ({ ...p, category_type: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Nature"
+              value={form.nature}
+              onChange={(e) => setForm((p) => ({ ...p, nature: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Type froid"
+              value={form.cold_type}
+              onChange={(e) => setForm((p) => ({ ...p, cold_type: e.target.value }))}
+            />
+
+            <input
+              className="rounded-xl border p-3"
+              placeholder="Méthode de valorisation"
+              value={form.valuation_method}
+              onChange={(e) => setForm((p) => ({ ...p, valuation_method: e.target.value }))}
+            />
+
+            <label className="rounded-xl border p-3 text-sm text-slate-600 md:col-span-2">
+              Image produit
+              <input
+                type="file"
+                accept="image/*"
+                className="mt-2 block w-full"
+                onChange={(e) => setImage(e.target.files?.[0] || null)}
+              />
+            </label>
+
             <label className="flex min-h-[48px] items-center gap-3 rounded-xl border p-3">
+              <input
+                type="checkbox"
+                checked={form.has_batch}
+                onChange={(e) => setForm((p) => ({ ...p, has_batch: e.target.checked }))}
+              />
+              <span className="text-sm font-medium text-slate-700">Gestion lot</span>
+            </label>
+
+            <label className="flex min-h-[48px] items-center gap-3 rounded-xl border p-3">
+              <input
+                type="checkbox"
+                checked={form.has_expiry_date}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, has_expiry_date: e.target.checked }))
+                }
+              />
+              <span className="text-sm font-medium text-slate-700">Date d'expiration</span>
+            </label>
+
+            <label className="flex min-h-[48px] items-center gap-3 rounded-xl border p-3 md:col-span-2">
               <input
                 type="checkbox"
                 checked={form.is_active}
@@ -212,7 +542,6 @@ function QuickProductModal({ open, onClose, categories, units, onCreated, isMobi
               />
               <span className="text-sm font-medium text-slate-700">Produit actif</span>
             </label>
-
             <div className="flex flex-col gap-3 pt-2 md:col-span-2 md:flex-row md:justify-end">
               <button
                 type="button"
@@ -350,11 +679,6 @@ function CartPanel({
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-slate-800">{line.name}</div>
                   <div className="text-xs text-slate-500">{line.code}</div>
-                  {line.purchase_unit_label && (
-                    <div className="mt-1 text-xs text-slate-500">
-                      Unité achat : {line.purchase_unit_label}
-                    </div>
-                  )}
                   <div className="mt-1 text-xs text-slate-500">
                     Dernier achat : {formatMoney(Number(line.last_purchase_price ?? 0))} Ar
                   </div>
@@ -371,7 +695,21 @@ function CartPanel({
                 </button>
               </div>
 
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <select
+                  className="h-11 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700"
+                  value={line.selected_unit_id || ""}
+                  onChange={(e) =>
+                    updateCartLine(line.product_id, "selected_unit_id", e.target.value)
+                  }
+                >
+                  {(line.unit_options || []).map((option) => (
+                    <option key={`${line.product_id}-${option.id}`} value={option.id}>
+                      {option.kind === "purchase" ? "Achat" : "Stock"} • {option.label}
+                    </option>
+                  ))}
+                </select>
+
                 <QtyControl
                   value={line.quantity}
                   onChange={(value) => updateCartLine(line.product_id, "quantity", value)}
@@ -444,6 +782,7 @@ export default function PurchasePOS() {
   const [sites, setSites] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
   const [units, setUnits] = useState([]);
+  const [locations, setLocations] = useState([]);
 
   const [selectedCategory, setSelectedCategory] = useState("");
   const [search, setSearch] = useState("");
@@ -484,46 +823,27 @@ export default function PurchasePOS() {
     );
   }, [warehouses, header.site_id, user]);
 
-  const unitsById = useMemo(() => {
-    const map = new Map();
-    (units ?? []).forEach((unit) => {
-      map.set(Number(unit.id), unit);
-    });
-    return map;
-  }, [units]);
-
-  const getPurchaseUnitLabel = (product) => {
-    if (!product) return "";
-
-    return (
-      product.purchase_unit?.symbol ||
-      product.purchase_unit?.name ||
-      product.unit?.symbol ||
-      product.unit?.name ||
-      product.purchase_unit_name ||
-      product.unit_name ||
-      unitsById.get(Number(product.purchase_unit_id))?.symbol ||
-      unitsById.get(Number(product.purchase_unit_id))?.name ||
-      ""
-    );
-  };
-
   const totalAmount = useMemo(() => {
     return cart.reduce((sum, line) => {
       return sum + Number(line.quantity || 0) * Number(line.unit_price || 0);
     }, 0);
   }, [cart]);
 
+  const unitsById = useMemo(() => {
+    return new Map((units || []).map((unit) => [Number(unit.id), unit]));
+  }, [units]);
+
   const loadReferences = async () => {
     try {
       setLoadingRefs(true);
 
-      const [catRes, supRes, siteRes, whRes, unitRes] = await Promise.all([
+      const [catRes, supRes, siteRes, whRes, unitRes, locRes] = await Promise.all([
         api.get("/references/categories"),
         api.get("/references/suppliers"),
         api.get("/sites"),
         api.get("/warehouses"),
         api.get("/units"),
+        api.get("/storage-zones"),
       ]);
 
       const categoriesData = asArray(catRes.data);
@@ -531,12 +851,14 @@ export default function PurchasePOS() {
       const sitesData = asArray(siteRes.data);
       const warehousesData = asArray(whRes.data);
       const unitsData = asArray(unitRes.data);
+      const locationsData = asArray(locRes.data);
 
       setCategories(categoriesData);
       setSuppliers(suppliersData);
       setSites(sitesData);
       setWarehouses(warehousesData);
       setUnits(unitsData);
+      setLocations(locationsData);
 
       const defaultSite =
         sitesData.find((s) => Number(s.id) === Number(user?.site_id)) ||
@@ -636,6 +958,47 @@ export default function PurchasePOS() {
     };
   }, [cartDrawerOpen, modalOpen]);
 
+  const buildCartLineFromProduct = (product) => {
+    const { purchaseUnitId, stockUnitId } = resolveProductUnitIds(product);
+    const defaultUnitId = purchaseUnitId || stockUnitId || null;
+    const unitOptions = buildProductUnitOptions(product, unitsById);
+    const resolvedPrice = resolveProductUnitPrice(product, defaultUnitId, unitsById);
+
+    return {
+      product_id: product.id,
+      code: product.code,
+      name: product.name,
+      quantity: 1,
+      selected_unit_id: defaultUnitId ? String(defaultUnitId) : "",
+      unit_price: Number(resolvedPrice.price || 0),
+      last_purchase_price: Number(resolvedPrice.price || 0),
+      last_purchase_date: product.last_purchase_date ?? null,
+      last_supplier_name: product.last_supplier_name ?? null,
+      purchase_unit_id: purchaseUnitId ? String(purchaseUnitId) : "",
+      stock_unit_id: stockUnitId ? String(stockUnitId) : "",
+      unit_options: unitOptions,
+    };
+  };
+
+  const recalculateLineForUnit = (line, nextUnitId) => {
+    const selectedUnitId = nextUnitId ? String(nextUnitId) : "";
+    const purchasePrice = firstFiniteNumber(line.last_purchase_price, line.unit_price);
+    const baseUnitId = line.purchase_unit_id || selectedUnitId || line.stock_unit_id || "";
+
+    return {
+      ...line,
+      selected_unit_id: selectedUnitId,
+      unit_price: String(
+        convertUnitAmount(
+          purchasePrice,
+          baseUnitId,
+          selectedUnitId || baseUnitId,
+          unitsById
+        )
+      ),
+    };
+  };
+
   const addToCart = (product) => {
     const exists = cart.find((line) => line.product_id === product.id);
 
@@ -648,21 +1011,7 @@ export default function PurchasePOS() {
         )
       );
     } else {
-      setCart((prev) => [
-        ...prev,
-        {
-          product_id: product.id,
-          code: product.code,
-          name: product.name,
-          purchase_unit_id: product.purchase_unit_id ?? null,
-          purchase_unit_label: getPurchaseUnitLabel(product),
-          quantity: 1,
-          unit_price: Number(product.last_purchase_price ?? 0),
-          last_purchase_price: Number(product.last_purchase_price ?? 0),
-          last_purchase_date: product.last_purchase_date ?? null,
-          last_supplier_name: product.last_supplier_name ?? null,
-        },
-      ]);
+      setCart((prev) => [...prev, buildCartLineFromProduct(product)]);
     }
 
     if (isMobile) {
@@ -672,9 +1021,13 @@ export default function PurchasePOS() {
 
   const updateCartLine = (productId, field, value) => {
     setCart((prev) =>
-      prev.map((line) =>
-        line.product_id === productId ? { ...line, [field]: value } : line
-      )
+      prev.map((line) => {
+        if (line.product_id !== productId) return line;
+        if (field === "selected_unit_id") {
+          return recalculateLineForUnit(line, value);
+        }
+        return { ...line, [field]: value };
+      })
     );
   };
 
@@ -1035,47 +1388,57 @@ export default function PurchasePOS() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {products.map((product) => (
-                <button
-                  key={product.id}
-                  onClick={() => addToCart(product)}
-                  className="rounded-2xl border border-slate-200 p-3 text-left transition hover:bg-slate-50"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="line-clamp-2 font-semibold text-slate-800">
-                        {product.name}
+              {products.map((product) => {
+                const { purchaseUnitId, stockUnitId } = resolveProductUnitIds(product);
+                const displayUnitId = purchaseUnitId || stockUnitId || null;
+                const displayPrice = resolveProductUnitPrice(
+                  product,
+                  displayUnitId,
+                  unitsById
+                );
+
+                return (
+                  <button
+                    key={product.id}
+                    onClick={() => addToCart(product)}
+                    className="rounded-2xl border border-slate-200 p-3 text-left transition hover:bg-slate-50"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="line-clamp-2 font-semibold text-slate-800">
+                          {product.name}
+                        </div>
+                        <div className="text-sm text-slate-500">{product.code}</div>
                       </div>
-                      <div className="text-sm text-slate-500">{product.code}</div>
+
+                      <span className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                        Ajouter
+                      </span>
                     </div>
 
-                    <span className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
-                      Ajouter
-                    </span>
-                  </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      {product.category?.name ?? "Sans catégorie"}
+                    </div>
 
-                  <div className="mt-2 text-xs text-slate-400">
-                    {product.category?.name ?? "Sans catégorie"}
-                  </div>
+                    <div className="mt-2 text-sm text-slate-700">
+                      Dernier achat :{" "}
+                      <strong>
+                        {formatMoney(Number(displayPrice.price ?? 0))} Ar
+                      </strong>
+                    </div>
 
-                  <div className="mt-2 text-sm text-slate-700">
-                    Dernier achat :{" "}
-                    <strong>
-                      {formatMoney(Number(product.last_purchase_price ?? 0))} Ar
-                    </strong>
-                  </div>
+                    <div className="text-xs text-slate-400">
+                      {product.last_supplier_name ?? "Fournisseur inconnu"}
+                    </div>
 
-                  <div className="text-xs text-slate-400">
-                    {product.last_supplier_name ?? "Fournisseur inconnu"}
-                  </div>
-
-                  <div className="mt-1 text-xs text-slate-400">
-                    {product.last_purchase_date
-                      ? `Date: ${new Date(product.last_purchase_date).toLocaleDateString("fr-FR")}`
-                      : ""}
-                  </div>
-                </button>
-              ))}
+                    <div className="mt-1 text-xs text-slate-400">
+                      {product.last_purchase_date
+                        ? `Date: ${new Date(product.last_purchase_date).toLocaleDateString("fr-FR")}`
+                        : ""}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1144,6 +1507,8 @@ export default function PurchasePOS() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         categories={categories}
+        suppliers={suppliers}
+        locations={locations}
         units={units}
         isMobile={isMobile}
         onCreated={(product) => {
