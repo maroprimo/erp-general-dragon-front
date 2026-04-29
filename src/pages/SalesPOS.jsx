@@ -413,6 +413,10 @@ const openCheckoutWithMethod = async (method) => {
       toast.error("Le ticket est vide");
       return;
     }
+    if (!cashSession) {
+      toast.error("Aucune caisse ouverte. Vente interdite.");
+      return;
+    }
 
     let activeCashSession = cashSession;
 

@@ -9,6 +9,8 @@ export default function CashDashboard() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const totalDiff = data.reduce((sum, r) => sum + Number(r.cash_diff || 0), 0);
+
   const load = async () => {
     try {
       setLoading(true);
@@ -89,17 +91,31 @@ export default function CashDashboard() {
                 </div>
               </div>
 
-              <div
+                <div
                 className={`mt-4 p-3 rounded-xl text-center font-bold ${
-                  diff === 0
+                    diff === 0
                     ? "bg-emerald-100 text-emerald-700"
-                    : diff > 0
-                    ? "bg-blue-100 text-blue-700"
+                    : Math.abs(diff) <= 50000
+                    ? "bg-yellow-100 text-yellow-700"
+                    : "bg-red-100 text-red-700 animate-pulse"
+                }`}
+                >
+                Écart : {formatMoney(diff)} Ar
+                {Math.abs(diff) > 50000 && (
+                    <div className="text-xs mt-1">
+                    ⚠️ Écart anormal
+                    </div>
+                )}
+                </div>
+                <div
+                className={`p-4 rounded-xl font-bold ${
+                    totalDiff === 0
+                    ? "bg-emerald-100"
                     : "bg-red-100 text-red-700"
                 }`}
-              >
-                Écart : {formatMoney(diff)} Ar
-              </div>
+                >
+                Écart global : {formatMoney(totalDiff)} Ar
+                </div>
             </div>
           );
         })}
