@@ -269,8 +269,8 @@ items: [
       },
       {
         key: "auditLogs",
-        label: "Audit Logs",
-        roles: ["pdg"],
+        label: "Journal audit",
+        roles: ["pdg", "admin", "controle"],
       },
     ],
   },

@@ -95,7 +95,7 @@ const PAGE_ACCESS = {
 
   users: ["pdg"],
   profile: ["pdg", "admin", "stock", "achat"],
-  auditLogs: ["pdg"],
+  auditLogs: ["pdg", "admin", "controle"],
 
   finance: ["pdg"],
   financeAI: ["pdg"],
