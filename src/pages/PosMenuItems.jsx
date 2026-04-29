@@ -62,6 +62,7 @@ const STATION_SUGGESTIONS = [
 const COST_SOURCE_OPTIONS = [
   { value: "average_cost", label: "PMP stock" },
   { value: "last_purchase", label: "Dernier achat" },
+  { value: "recipe_cost", label: "Fiche technique / recette" },
   { value: "manual", label: "Manuel" },
 ];
 
@@ -155,6 +156,14 @@ export default function PosMenuItems() {
         selectedProduct?.last_price ??
         0
     );
+  }, [selectedProduct]);
+
+  const selectedRecipeCostAverage = useMemo(() => {
+  return Number(selectedProduct?.recipe_unit_cost_average ?? 0);
+  }, [selectedProduct]);
+
+  const selectedRecipeCostLastPurchase = useMemo(() => {
+    return Number(selectedProduct?.recipe_unit_cost_last_purchase ?? 0);
   }, [selectedProduct]);
 
   const selectedStockUnitName = useMemo(() => {
@@ -256,6 +265,13 @@ export default function PosMenuItems() {
       );
     }
 
+    if (source === "recipe_cost") {
+        nextCost = Number(
+          product?.recipe_unit_cost_average ??
+            product?.recipe?.cost_average_summary?.total_cost ??
+            0
+        );
+      }
     if (source === "manual") {
       nextCost = form.cost_price || "";
     }
@@ -302,7 +318,13 @@ export default function PosMenuItems() {
           0
       );
     }
-
+  if (source === "recipe_cost") {
+    nextCost = Number(
+      product?.recipe_unit_cost_average ??
+        product?.recipe?.cost_average_summary?.total_cost ??
+        0
+    );
+  }
     setForm((prev) => ({
       ...prev,
       product_id: String(product.id),
@@ -521,6 +543,20 @@ export default function PosMenuItems() {
                   <div>
                     Dernier achat :{" "}
                     <strong>{money(selectedLastPurchasePrice)} Ar</strong>
+                  </div>
+                  <div>
+                    Coût recette PMP :{" "}
+                    <strong>{money(selectedRecipeCostAverage)} Ar</strong>
+                  </div>
+
+                  <div>
+                    Coût recette dernier achat :{" "}
+                    <strong>{money(selectedRecipeCostLastPurchase)} Ar</strong>
+                  </div>
+
+                  <div>
+                    Fiche technique :{" "}
+                    <strong>{selectedProduct?.has_recipe ? "Oui" : "Non"}</strong>
                   </div>
                 </div>
               </div>
