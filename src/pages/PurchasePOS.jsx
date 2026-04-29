@@ -43,11 +43,11 @@ function convertUnitAmount(amount, fromUnitId, toUnitId, unitsById) {
   const fromRatio = getUnitRatio(unitsById, fromUnitId);
   const toRatio = getUnitRatio(unitsById, toUnitId);
 
-  if (!Number.isFinite(fromRatio) || !Number.isFinite(toRatio) || toRatio <= 0) {
+  if (!Number.isFinite(fromRatio) || fromRatio <= 0 || !Number.isFinite(toRatio) || toRatio <= 0) {
     return numericAmount;
   }
 
-  return numericAmount * (fromRatio / toRatio);
+  return numericAmount / (fromRatio / toRatio);
 }
 
 function resolveProductUnitIds(product) {
@@ -619,8 +619,12 @@ function CartPanel({
   onClose,
 }) {
   return (
-    <div className={`flex h-full flex-col ${isMobile ? "bg-white" : ""}`}>
-      <div className={`flex items-center justify-between ${isMobile ? "border-b border-slate-200 p-4" : ""}`}>
+    <div className={`flex h-full min-h-0 flex-col ${isMobile ? "bg-white" : ""}`}>
+      <div
+        className={`flex items-center justify-between ${
+          isMobile ? "border-b border-slate-200 bg-white px-4 py-4" : "pb-2"
+        }`}
+      >
         <div>
           <h2 className="text-lg font-bold text-slate-800">Panier achat</h2>
           <p className="text-sm text-slate-500">
@@ -644,16 +648,16 @@ function CartPanel({
         )}
       </div>
 
-      <div className={`${isMobile ? "p-4" : ""}`}>
+      <div className={`flex min-h-0 flex-1 flex-col ${isMobile ? "p-4" : ""}`}>
         <div className="mb-4 grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-slate-100 p-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
             <div className="text-sm text-slate-500">Lignes</div>
-            <div className="text-xl font-bold text-slate-800">{cart.length}</div>
+            <div className="text-2xl font-bold text-slate-800">{cart.length}</div>
           </div>
 
-          <div className="rounded-xl bg-slate-100 p-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm">
             <div className="text-sm text-slate-500">Mode</div>
-            <div className="text-xl font-bold text-slate-800">
+            <div className="text-2xl font-bold text-slate-800">
               {header.document_mode === "bc"
                 ? "BC"
                 : header.document_mode === "br_direct"
@@ -663,9 +667,13 @@ function CartPanel({
           </div>
         </div>
 
-        <div className={`space-y-3 ${isMobile ? "max-h-[48vh] overflow-y-auto" : "max-h-[50vh] overflow-y-auto pr-1"}`}>
+        <div
+          className={`min-h-0 flex-1 space-y-3 ${
+            isMobile ? "overflow-y-auto pb-3" : "overflow-y-auto pr-1"
+          }`}
+        >
           {cart.length === 0 && (
-            <div className="rounded-xl bg-slate-50 p-4 text-slate-500">
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
               Aucun article dans le panier.
             </div>
           )}
@@ -673,68 +681,86 @@ function CartPanel({
           {cart.map((line) => (
             <div
               key={line.product_id}
-              className="rounded-xl border border-slate-200 p-3"
+              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate font-semibold text-slate-800">{line.name}</div>
-                  <div className="text-xs text-slate-500">{line.code}</div>
-                  <div className="mt-1 text-xs text-slate-500">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-base font-semibold text-slate-800">{line.name}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">{line.code}</div>
+                  <div className="mt-2 text-xs text-slate-500">
                     Dernier achat : {formatMoney(Number(line.last_purchase_price ?? 0))} Ar
                   </div>
-                  <div className="text-xs text-slate-400">
-                    {line.last_supplier_name ?? ""}
-                  </div>
+                  {!!line.last_supplier_name && (
+                    <div className="mt-1 text-xs text-slate-400">{line.last_supplier_name}</div>
+                  )}
                 </div>
 
                 <button
                   onClick={() => removeCartLine(line.product_id)}
-                  className="shrink-0 rounded-lg bg-red-600 px-3 py-2 text-sm text-white"
+                  className="shrink-0 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white shadow-sm"
                 >
                   Retirer
                 </button>
               </div>
 
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <select
-                  className="h-11 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-medium text-blue-700"
-                  value={line.selected_unit_id || ""}
-                  onChange={(e) =>
-                    updateCartLine(line.product_id, "selected_unit_id", e.target.value)
-                  }
-                >
-                  {(line.unit_options || []).map((option) => (
-                    <option key={`${line.product_id}-${option.id}`} value={option.id}>
-                      {option.kind === "purchase" ? "Achat" : "Stock"} • {option.label}
-                    </option>
-                  ))}
-                </select>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1 sm:col-span-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Unité
+                  </div>
+                  <select
+                    className="h-11 w-full rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700"
+                    value={line.selected_unit_id || ""}
+                    onChange={(e) =>
+                      updateCartLine(line.product_id, "selected_unit_id", e.target.value)
+                    }
+                  >
+                    {(line.unit_options || []).map((option) => (
+                      <option key={`${line.product_id}-${option.id}`} value={option.id}>
+                        {option.kind === "purchase" ? "Achat" : "Stock"} • {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                <QtyControl
-                  value={line.quantity}
-                  onChange={(value) => updateCartLine(line.product_id, "quantity", value)}
-                />
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Quantité
+                  </div>
+                  <QtyControl
+                    value={line.quantity}
+                    onChange={(value) => updateCartLine(line.product_id, "quantity", value)}
+                  />
+                </div>
 
-                <input
-                  type="number"
-                  step="0.01"
-                  className="h-11 rounded-xl border p-3"
-                  placeholder="Prix unitaire"
-                  value={line.unit_price}
-                  onChange={(e) =>
-                    updateCartLine(line.product_id, "unit_price", e.target.value)
-                  }
-                />
+                <div className="space-y-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Prix unitaire
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="h-11 w-full rounded-xl border border-slate-300 px-3"
+                    placeholder="Prix unitaire"
+                    value={line.unit_price}
+                    onChange={(e) =>
+                      updateCartLine(line.product_id, "unit_price", e.target.value)
+                    }
+                  />
+                </div>
               </div>
 
               {Number(line.unit_price || 0) !== Number(line.last_purchase_price || 0) && (
-                <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                   Prix différent du dernier achat
                 </div>
               )}
 
-              <div className="mt-3 flex items-center justify-between">
-                <div className="font-bold text-slate-800">
+              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Sous-total
+                </div>
+                <div className="text-2xl font-extrabold text-slate-800">
                   {formatMoney(
                     Number(line.quantity || 0) * Number(line.unit_price || 0)
                   )}{" "}
@@ -745,26 +771,28 @@ function CartPanel({
           ))}
         </div>
 
-        <div className="mt-5 rounded-xl bg-slate-100 p-4">
-          <div className="text-sm text-slate-500">Montant total</div>
-          <div className="text-2xl font-bold text-slate-800">
-            {formatMoney(totalAmount)} Ar
+        <div className="mt-4 border-t border-slate-200 bg-white pt-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+            <div className="text-sm text-slate-500">Montant total</div>
+            <div className="text-3xl font-extrabold text-slate-800">
+              {formatMoney(totalAmount)} Ar
+            </div>
           </div>
-        </div>
 
-        <button
-          onClick={submitDocument}
-          disabled={submitting}
-          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-3 text-white disabled:opacity-60"
-        >
-          {submitting
-            ? "Enregistrement..."
-            : header.document_mode === "bc"
-            ? "Valider le bon de commande"
-            : header.document_mode === "br_direct"
-            ? "Valider le bon de réception"
-            : "Valider la facture"}
-        </button>
+          <button
+            onClick={submitDocument}
+            disabled={submitting}
+            className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
+          >
+            {submitting
+              ? "Enregistrement..."
+              : header.document_mode === "bc"
+              ? "Valider le bon de commande"
+              : header.document_mode === "br_direct"
+              ? "Valider le bon de réception"
+              : "Valider la facture"}
+          </button>
+        </div>
       </div>
     </div>
   );
