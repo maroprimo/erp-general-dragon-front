@@ -7,6 +7,8 @@ const emptyForm = {
   selling_name: "",
   menu_category: "",
   sale_price: "",
+  cost_source: "average_cost",
+  cost_price: "",
   preparation_station: "",
   available_counter: true,
   available_room: true,
@@ -20,6 +22,22 @@ function asArray(payload) {
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.data?.data)) return payload.data.data;
   return [];
+}
+
+function money(value) {
+  return Number(value || 0).toLocaleString("fr-FR");
+}
+
+function computeMargin(salePrice, costPrice) {
+  const sale = Number(salePrice || 0);
+  const cost = Number(costPrice || 0);
+  const marginAmount = sale - cost;
+  const marginRate = sale > 0 ? (marginAmount / sale) * 100 : 0;
+
+  return {
+    marginAmount,
+    marginRate,
+  };
 }
 
 const MENU_CATEGORY_SUGGESTIONS = [
@@ -39,6 +57,12 @@ const STATION_SUGGESTIONS = [
   "Bar / Boissons",
   "Snack",
   "Dessert",
+];
+
+const COST_SOURCE_OPTIONS = [
+  { value: "average_cost", label: "PMP stock" },
+  { value: "last_purchase", label: "Dernier achat" },
+  { value: "manual", label: "Manuel" },
 ];
 
 export default function PosMenuItems() {
@@ -71,6 +95,7 @@ export default function PosMenuItems() {
         const res = await api.get(url, {
           params: { per_page: 500 },
         });
+
         const rows = asArray(res.data);
 
         if (rows.length > 0) {
@@ -107,24 +132,55 @@ export default function PosMenuItems() {
     loadData();
   }, []);
 
-  const updateForm = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const resetForm = () => {
-    setEditingId(null);
-    setForm(emptyForm);
-    setProductSearch("");
-  };
-
   const selectedProduct = useMemo(() => {
     return (products ?? []).find(
       (product) => Number(product.id) === Number(form.product_id)
     );
   }, [products, form.product_id]);
+
+  const selectedAverageCost = useMemo(() => {
+    return Number(
+      selectedProduct?.average_unit_cost ??
+        selectedProduct?.stock_level?.average_unit_cost ??
+        selectedProduct?.stock?.average_unit_cost ??
+        0
+    );
+  }, [selectedProduct]);
+
+  const selectedLastPurchasePrice = useMemo(() => {
+    return Number(
+      selectedProduct?.last_purchase_price ??
+        selectedProduct?.latest_purchase_price ??
+        selectedProduct?.purchase_price ??
+        selectedProduct?.last_price ??
+        0
+    );
+  }, [selectedProduct]);
+
+  const selectedStockUnitName = useMemo(() => {
+    return (
+      selectedProduct?.stock_unit?.name ||
+      selectedProduct?.stockUnit?.name ||
+      selectedProduct?.unit_stock?.name ||
+      selectedProduct?.stock_unit_name ||
+      selectedProduct?.unit_name ||
+      "-"
+    );
+  }, [selectedProduct]);
+
+  const selectedSaleUnitName = useMemo(() => {
+    return (
+      selectedProduct?.sale_unit?.name ||
+      selectedProduct?.saleUnit?.name ||
+      selectedProduct?.unit_sale?.name ||
+      selectedProduct?.sale_unit_name ||
+      "-"
+    );
+  }, [selectedProduct]);
+
+  const currentMargin = useMemo(() => {
+    return computeMargin(form.sale_price, form.cost_price);
+  }, [form.sale_price, form.cost_price]);
 
   const visibleProducts = useMemo(() => {
     const term = productSearch.trim().toLowerCase();
@@ -135,6 +191,10 @@ export default function PosMenuItems() {
           product.name,
           product.code,
           product.category?.name,
+          product.stock_unit?.name,
+          product.stockUnit?.name,
+          product.sale_unit?.name,
+          product.saleUnit?.name,
         ]
           .filter(Boolean)
           .join(" ")
@@ -142,7 +202,7 @@ export default function PosMenuItems() {
 
         return term ? haystack.includes(term) : true;
       })
-      .slice(0, 12);
+      .slice(0, 15);
   }, [products, productSearch]);
 
   const filteredMenuItems = useMemo(() => {
@@ -174,13 +234,98 @@ export default function PosMenuItems() {
     });
   }, [menuItems, filters]);
 
+  const applyCostSource = (source, product = selectedProduct) => {
+    let nextCost = form.cost_price;
+
+    if (source === "average_cost") {
+      nextCost = Number(
+        product?.average_unit_cost ??
+          product?.stock_level?.average_unit_cost ??
+          product?.stock?.average_unit_cost ??
+          0
+      );
+    }
+
+    if (source === "last_purchase") {
+      nextCost = Number(
+        product?.last_purchase_price ??
+          product?.latest_purchase_price ??
+          product?.purchase_price ??
+          product?.last_price ??
+          0
+      );
+    }
+
+    if (source === "manual") {
+      nextCost = form.cost_price || "";
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      cost_source: source,
+      cost_price: nextCost,
+    }));
+  };
+
+  const updateForm = (field, value) => {
+    if (field === "cost_source") {
+      applyCostSource(value);
+      return;
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const selectProduct = (product) => {
+    const source = form.cost_source || "average_cost";
+
+    let nextCost = form.cost_price;
+
+    if (source === "average_cost") {
+      nextCost = Number(
+        product?.average_unit_cost ??
+          product?.stock_level?.average_unit_cost ??
+          product?.stock?.average_unit_cost ??
+          0
+      );
+    }
+
+    if (source === "last_purchase") {
+      nextCost = Number(
+        product?.last_purchase_price ??
+          product?.latest_purchase_price ??
+          product?.purchase_price ??
+          product?.last_price ??
+          0
+      );
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      product_id: String(product.id),
+      cost_price: source === "manual" ? prev.cost_price : nextCost,
+    }));
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
+    setForm(emptyForm);
+    setProductSearch("");
+  };
+
   const startEdit = (item) => {
     setEditingId(item.id);
+
     setForm({
       product_id: item.product_id ? String(item.product_id) : "",
       selling_name: item.selling_name || "",
       menu_category: item.menu_category || "",
       sale_price: item.sale_price ?? "",
+      cost_source: item.cost_source || "average_cost",
+      cost_price: item.cost_price ?? "",
       preparation_station: item.preparation_station || "",
       available_counter: Boolean(item.available_counter),
       available_room: Boolean(item.available_room),
@@ -215,14 +360,25 @@ export default function PosMenuItems() {
       return;
     }
 
+    if (Number(form.cost_price || 0) < 0) {
+      toast.error("Le coût de revient est invalide");
+      return;
+    }
+
     try {
       setSubmitting(true);
+
+      const margin = computeMargin(form.sale_price, form.cost_price);
 
       const payload = {
         product_id: Number(form.product_id),
         selling_name: form.selling_name || null,
         menu_category: form.menu_category,
         sale_price: Number(form.sale_price || 0),
+        cost_source: form.cost_source || "average_cost",
+        cost_price: Number(form.cost_price || 0),
+        margin_amount: Number(margin.marginAmount || 0),
+        margin_rate: Number(margin.marginRate || 0),
         preparation_station: form.preparation_station || null,
         available_counter: Boolean(form.available_counter),
         available_room: Boolean(form.available_room),
@@ -253,7 +409,9 @@ export default function PosMenuItems() {
 
   const removeMenuItem = async (item) => {
     const ok = window.confirm(
-      `Voulez-vous vraiment supprimer l'article POS "${item.selling_name || item.product?.name}" ?`
+      `Voulez-vous vraiment supprimer l'article POS "${
+        item.selling_name || item.product?.name
+      }" ?`
     );
 
     if (!ok) return;
@@ -319,7 +477,7 @@ export default function PosMenuItems() {
                     <button
                       key={product.id}
                       type="button"
-                      onClick={() => updateForm("product_id", String(product.id))}
+                      onClick={() => selectProduct(product)}
                       className={`w-full rounded-xl border p-3 text-left ${
                         isSelected
                           ? "border-slate-900 bg-slate-900 text-white"
@@ -328,7 +486,8 @@ export default function PosMenuItems() {
                     >
                       <div className="font-semibold">{product.name}</div>
                       <div className="text-xs opacity-80">
-                        {product.code || "-"} • {product.category?.name || "Sans catégorie"}
+                        {product.code || "-"} •{" "}
+                        {product.category?.name || "Sans catégorie"}
                       </div>
                     </button>
                   );
@@ -343,9 +502,27 @@ export default function PosMenuItems() {
             </div>
 
             {selectedProduct && (
-              <div className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-                Produit sélectionné : <strong>{selectedProduct.name}</strong>
-                {selectedProduct.code ? ` (${selectedProduct.code})` : ""}
+              <div className="space-y-3 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
+                <div>
+                  Produit sélectionné : <strong>{selectedProduct.name}</strong>
+                  {selectedProduct.code ? ` (${selectedProduct.code})` : ""}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <div>
+                    Unité stock : <strong>{selectedStockUnitName}</strong>
+                  </div>
+                  <div>
+                    Unité vente : <strong>{selectedSaleUnitName}</strong>
+                  </div>
+                  <div>
+                    PMP stock : <strong>{money(selectedAverageCost)} Ar</strong>
+                  </div>
+                  <div>
+                    Dernier achat :{" "}
+                    <strong>{money(selectedLastPurchasePrice)} Ar</strong>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -366,6 +543,29 @@ export default function PosMenuItems() {
                 value={form.sale_price}
                 onChange={(e) => updateForm("sale_price", e.target.value)}
                 required
+              />
+
+              <select
+                className="rounded-xl border p-3"
+                value={form.cost_source}
+                onChange={(e) => updateForm("cost_source", e.target.value)}
+              >
+                {COST_SOURCE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                className="rounded-xl border p-3"
+                placeholder="Coût de revient"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.cost_price}
+                onChange={(e) => updateForm("cost_price", e.target.value)}
+                readOnly={form.cost_source !== "manual"}
               />
 
               <input
@@ -396,6 +596,35 @@ export default function PosMenuItems() {
                 value={form.sort_order}
                 onChange={(e) => updateForm("sort_order", e.target.value)}
               />
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Marge</div>
+                <div className="font-bold text-slate-900">
+                  {money(currentMargin.marginAmount)} Ar
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-4">
+                <div className="text-sm text-slate-500">Taux marge</div>
+                <div className="font-bold text-slate-900">
+                  {Number(currentMargin.marginRate || 0).toFixed(2)} %
+                </div>
+              </div>
+
+              <div
+                className={`rounded-xl p-4 ${
+                  currentMargin.marginAmount >= 0
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-red-50 text-red-700"
+                }`}
+              >
+                <div className="text-sm">Statut</div>
+                <div className="font-bold">
+                  {currentMargin.marginAmount >= 0 ? "Rentable" : "Perte"}
+                </div>
+              </div>
             </div>
 
             <datalist id="menu-categories-list">
@@ -550,8 +779,23 @@ export default function PosMenuItems() {
                       {item.menu_category || "Sans catégorie"}
                     </span>
 
-                    <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700">
-                      {Number(item.sale_price || 0).toLocaleString("fr-FR")} Ar
+                    <span className="rounded-lg bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                      Vente : {money(item.sale_price)} Ar
+                    </span>
+
+                    <span className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                      Coût : {money(item.cost_price)} Ar
+                    </span>
+
+                    <span
+                      className={`rounded-lg px-2 py-1 text-xs ${
+                        Number(item.margin_amount || 0) >= 0
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-red-50 text-red-700"
+                      }`}
+                    >
+                      Marge : {money(item.margin_amount)} Ar /{" "}
+                      {Number(item.margin_rate || 0).toFixed(2)} %
                     </span>
 
                     <span className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-700">

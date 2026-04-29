@@ -84,6 +84,65 @@ function getPaginationInfo(payload) {
   };
 }
 
+function normalizeProduct(product) {
+  const firstBarcode = Array.isArray(product?.barcodes) && product.barcodes.length > 0
+    ? product.barcodes[0]
+    : null;
+
+  return {
+    ...product,
+    barcode:
+      product?.barcode ??
+      firstBarcode?.barcode ??
+      firstBarcode?.code ??
+      firstBarcode?.value ??
+      "",
+    category_id:
+      product?.category_id ??
+      product?.category?.id ??
+      "",
+    purchase_unit_id:
+      product?.purchase_unit_id ??
+      product?.purchase_unit?.id ??
+      product?.purchaseUnit?.id ??
+      "",
+    stock_unit_id:
+      product?.stock_unit_id ??
+      product?.stock_unit?.id ??
+      product?.stockUnit?.id ??
+      "",
+    production_unit_id:
+      product?.production_unit_id ??
+      product?.production_unit?.id ??
+      product?.productionUnit?.id ??
+      "",
+    sale_unit_id:
+      product?.sale_unit_id ??
+      product?.sale_unit?.id ??
+      product?.saleUnit?.id ??
+      "",
+    main_supplier_id:
+      product?.main_supplier_id ??
+      product?.main_supplier?.id ??
+      product?.mainSupplier?.id ??
+      "",
+    default_storage_location_id:
+      product?.default_storage_location_id ??
+      product?.default_storage_location?.id ??
+      product?.defaultStorageLocation?.id ??
+      "",
+    category: product?.category ?? product?.categoryObj ?? null,
+    purchaseUnit: product?.purchaseUnit ?? product?.purchase_unit ?? null,
+    stockUnit: product?.stockUnit ?? product?.stock_unit ?? null,
+    productionUnit: product?.productionUnit ?? product?.production_unit ?? null,
+    saleUnit: product?.saleUnit ?? product?.sale_unit ?? null,
+    mainSupplier: product?.mainSupplier ?? product?.main_supplier ?? null,
+    defaultStorageLocation:
+      product?.defaultStorageLocation ?? product?.default_storage_location ?? null,
+  };
+}
+
+
 async function fetchAllCatalogProducts() {
   const perPage = 100;
   const firstRes = await api.get("/products-catalog", {
@@ -232,7 +291,7 @@ export default function ProductsCatalog() {
 
       setCategories(asArray(catRes.data));
       setLocations(asArray(locRes.data));
-      setProducts(allProducts);
+      setProducts(allProducts.map((product) => normalizeProduct(product)));
     } catch (err) {
       console.error(err);
       toast.error("Erreur de chargement des produits");
