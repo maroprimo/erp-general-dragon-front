@@ -48,6 +48,7 @@ import PosMenuItems from "./pages/PosMenuItems";
 import SalesHistory from "./pages/SalesHistory";
 import CashSessions from "./pages/CashSessions";
 import CashDashboard from "./pages/CashDashboard";
+import SalesStockMovements from "./pages/SalesStockMovements";
 
 const PAGE_ACCESS = {
   dashboard: ["pdg", "admin"],
@@ -58,6 +59,7 @@ const PAGE_ACCESS = {
   posMenuItems: ["pdg", "admin"],
   salesHistory: ["pdg", "admin", "controle"],
   cashSessions: ["pdg", "admin", "controle", "stock"],
+  salesStockMovements: ["pdg", "admin", "controle", "stock"],
 
   stock: ["pdg", "admin", "stock", "cuisine"],
   stockLosses: ["pdg", "admin", "stock", "controle"],
@@ -241,6 +243,7 @@ const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
     if (page === "stockDashboardSite") return <StockDashboardSite />;
     if (page === "stockDashboardGlobal") return <StockDashboardGlobal />;
     if (page === "cashDashboard") return <CashDashboard />;
+    if (page === "salesStockMovements") return <SalesStockMovements />;
 
     if (page === "stock") return <Stock />;
     if (page === "stockLosses") return <StockLosses />;

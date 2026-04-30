@@ -84,6 +84,11 @@ items: [
     roles: ["pdg", "admin", "controle"],
   },
   {
+  key: "salesStockMovements",
+  label: "Mouvements stock vente",
+  roles: ["pdg", "admin", "controle", "stock"],
+  },
+  {
     key: "cashSessions",
     label: "Ouverture / Clôture caisse",
     roles: ["pdg", "admin", "controle", "stock"],
