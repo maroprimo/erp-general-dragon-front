@@ -89,6 +89,11 @@ items: [
   roles: ["pdg", "admin", "controle", "stock"],
   },
   {
+  key: "kitchenInventoryChecks",
+  label: "Contrôle pertes cuisine",
+  roles: ["pdg", "admin", "controle", "stock"],
+  },
+  {
     key: "cashSessions",
     label: "Ouverture / Clôture caisse",
     roles: ["pdg", "admin", "controle", "stock"],
