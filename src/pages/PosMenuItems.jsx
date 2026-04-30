@@ -15,6 +15,8 @@ const emptyForm = {
   available_delivery: true,
   is_active: true,
   sort_order: 0,
+  stock_deduction_warehouse_id: "",
+  stock_deduction_mode: "finished_product_first",
 };
 
 function asArray(payload) {
@@ -75,6 +77,8 @@ export default function PosMenuItems() {
   const [menuItems, setMenuItems] = useState([]);
   const [products, setProducts] = useState([]);
 
+  const [warehouses, setWarehouses] = useState([]);
+
   const [form, setForm] = useState(emptyForm);
 
   const [productSearch, setProductSearch] = useState("");
@@ -114,11 +118,13 @@ export default function PosMenuItems() {
     try {
       setLoading(true);
 
-      const [menuRes, productsRows] = await Promise.all([
+      const [menuRes, productsRows, warehousesRes] = await Promise.all([
         api.get("/pos/menu-items"),
         loadProducts(),
+        api.get("/warehouses"),
       ]);
 
+      setWarehouses(asArray(warehousesRes.data));
       setMenuItems(asArray(menuRes.data));
       setProducts(productsRows);
     } catch (err) {
@@ -354,6 +360,10 @@ export default function PosMenuItems() {
       available_delivery: Boolean(item.available_delivery),
       is_active: Boolean(item.is_active),
       sort_order: item.sort_order ?? 0,
+stock_deduction_warehouse_id: item.stock_deduction_warehouse_id
+  ? String(item.stock_deduction_warehouse_id)
+  : "",
+stock_deduction_mode: item.stock_deduction_mode || "finished_product_first",
     });
 
     setProductSearch(item.product?.name || item.selling_name || "");
@@ -407,6 +417,10 @@ export default function PosMenuItems() {
         available_delivery: Boolean(form.available_delivery),
         is_active: Boolean(form.is_active),
         sort_order: Number(form.sort_order || 0),
+        stock_deduction_warehouse_id: form.stock_deduction_warehouse_id
+          ? Number(form.stock_deduction_warehouse_id)
+          : null,
+        stock_deduction_mode: form.stock_deduction_mode || "finished_product_first",
       };
 
       if (editingId) {
@@ -662,6 +676,34 @@ export default function PosMenuItems() {
                 </div>
               </div>
             </div>
+
+<select
+  className="rounded-xl border p-3"
+  value={form.stock_deduction_warehouse_id}
+  onChange={(e) =>
+    updateForm("stock_deduction_warehouse_id", e.target.value)
+  }
+>
+  <option value="">Dépôt de déduction automatique</option>
+  {warehouses.map((warehouse) => (
+    <option key={warehouse.id} value={warehouse.id}>
+      {warehouse.name}
+    </option>
+  ))}
+</select>
+
+<select
+  className="rounded-xl border p-3"
+  value={form.stock_deduction_mode}
+  onChange={(e) =>
+    updateForm("stock_deduction_mode", e.target.value)
+  }
+>
+  <option value="finished_product_first">Produit fini d’abord, sinon recette</option>
+  <option value="finished_product_only">Produit fini uniquement</option>
+  <option value="recipe_ingredients">Ingrédients recette uniquement</option>
+  <option value="none">Aucune déduction automatique</option>
+</select>
 
             <datalist id="menu-categories-list">
               {MENU_CATEGORY_SUGGESTIONS.map((item) => (
