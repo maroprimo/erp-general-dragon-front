@@ -1,11 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 
+
+
 const APP_BASE_URL =
   (import.meta.env.VITE_BACKEND_WEB_URL || "https://stock.dragonroyalmg.com").replace(
     /\/index\.php$/,
     ""
   );
+
+const loadNotificationCounters = async () => {
+  try {
+    const res = await api.get("/executive-notifications/counters");
+
+    setNotificationCounters({
+      unread: Number(res.data?.unread || 0),
+      danger: Number(res.data?.danger || 0),
+      warning: Number(res.data?.warning || 0),
+      by_category: res.data?.by_category || {},
+    });
+  } catch (err) {
+    console.error("Erreur chargement notifications PDG", err);
+  }
+};
 
 function buildAssetUrl(path) {
   if (!path) return "";
@@ -103,11 +120,6 @@ items: [
         roles: ["pdg", "admin", "stock", "cuisine"],
       },
       {
-        key: "stockLosses",
-        label: "Pertes",
-        roles: ["pdg", "admin", "stock", "controle"],
-      },
-      {
         key: "stockInventories",
         label: "Inventaires",
         roles: ["pdg", "admin", "stock", "controle"],
@@ -131,7 +143,17 @@ items: [
       key: "executiveWeeklyReport",
       label: "Rapport PDG hebdo",
       roles: ["pdg", "admin"],
-    },
+      },
+      {
+      key: "executiveReportLogs",
+      label: "Historique rapports PDG",
+      roles: ["pdg", "admin"],
+      },
+      {
+        key: "executiveNotifications",
+        label: "Centre notifications PDG",
+        roles: ["pdg", "admin", "controle"],
+      },
     ],
   },
   {
@@ -315,19 +337,29 @@ items: [
   },
 ];
 
-export default function AppLayout({
-  user,
-  logout,
-  activeTerminal,
-  page,
-  setPage,
-  children,
-}) {
+export default function AppLayout({ user, logout, page, setPage, children }) {
   const [stockAlertCount, setStockAlertCount] = useState(0);
   const [pendingTransferCount, setPendingTransferCount] = useState(0);
   const [siteName, setSiteName] = useState("Chargement...");
   const [mainSite, setMainSite] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notificationCounters, setNotificationCounters] = useState({
+    unread: 0,
+    danger: 0,
+    warning: 0,
+    by_category: {},
+  });
+
+  useEffect(() => {
+  loadNotificationCounters();
+
+  const interval = setInterval(() => {
+    loadNotificationCounters();
+  }, 60000);
+
+  return () => clearInterval(interval);
+}, []);
+
 
   useEffect(() => {
     const loadMainData = async () => {
@@ -375,6 +407,31 @@ export default function AppLayout({
 
     loadMainData();
   }, [user]);
+
+  useEffect(() => {
+    const loadNotificationCounters = async () => {
+      try {
+        const res = await api.get("/executive-notifications/counters");
+
+        setNotificationCounters({
+          unread: Number(res.data?.unread || 0),
+          danger: Number(res.data?.danger || 0),
+          warning: Number(res.data?.warning || 0),
+          by_category: res.data?.by_category || {},
+        });
+      } catch (err) {
+        console.error("Erreur chargement notifications PDG", err);
+      }
+    };
+
+    loadNotificationCounters();
+
+    const interval = setInterval(() => {
+      loadNotificationCounters();
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const groupedNav = useMemo(() => {
     return MENU_GROUPS.map((group) => ({
@@ -575,43 +632,44 @@ export default function AppLayout({
           </p>
 
           {/* Infos secondaires - Plus discrètes */}
-<div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
-  <div className="flex items-center gap-1">
-    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-    <span className="font-medium text-slate-600">
-      Site : {activeTerminal?.site_name || siteName}
-    </span>
-  </div>
-
-  {(user?.warehouse?.name || activeTerminal?.warehouse_name) && (
-    <>
-      <span className="hidden sm:inline opacity-30">|</span>
-      <span className="truncate">
-        Dépôt : {user?.warehouse?.name || activeTerminal?.warehouse_name}
-      </span>
-    </>
-  )}
-
-  {activeTerminal?.name && (
-    <>
-      <span className="hidden sm:inline opacity-30">|</span>
-      <span className="truncate">
-        Poste : {activeTerminal.name}
-        {activeTerminal.code ? ` (${activeTerminal.code})` : ""}
-      </span>
-    </>
-  )}
-
-  <span className="hidden sm:inline opacity-30">|</span>
-  <span className="truncate">
-    {user?.name || user?.email} • <span className="italic">{user?.role}</span>
-  </span>
-</div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+            <div className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+              <span className="font-medium text-slate-600">Site : {siteName}</span>
+            </div>
+            <span className="hidden sm:inline opacity-30">|</span>
+            <span className="truncate">
+              {user?.name || user?.email} • <span className="italic">{user?.role}</span>
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Bloc Utilisateur Droite (Desktop) */}
       <div className="hidden shrink-0 items-center gap-3 sm:flex">
+        <button
+          type="button"
+          onClick={() => setPage("executiveNotifications")}
+          className={`relative rounded-xl px-4 py-2 text-xs font-bold shadow-sm transition-all active:scale-95 ${
+            notificationCounters.danger > 0
+              ? "bg-red-100 text-red-700 animate-pulse"
+              : notificationCounters.warning > 0
+              ? "bg-amber-100 text-amber-700"
+              : notificationCounters.unread > 0
+              ? "bg-blue-100 text-blue-700"
+              : "bg-slate-100 text-slate-600"
+          }`}
+          title="Centre notifications PDG"
+        >
+          🔔 Notifications
+
+          {notificationCounters.unread > 0 && (
+            <span className="absolute -right-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-xs font-black text-white">
+              {notificationCounters.unread}
+            </span>
+          )}
+        </button>
+
         <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/50 p-1.5 pr-3 shadow-sm">
           {avatarUrl ? (
             <img
@@ -628,20 +686,12 @@ export default function AppLayout({
             </div>
           )}
 
-<div className="text-right">
-  <div className="max-w-[150px] truncate text-xs font-bold text-slate-800">
-    {user?.name || user?.email}
-  </div>
-  <div className="text-[10px] font-medium uppercase tracking-tighter text-slate-400">
-    {user?.role}
-  </div>
-  {activeTerminal?.name && (
-    <div className="max-w-[170px] truncate text-[10px] text-emerald-600">
-      {activeTerminal.name}
-      {activeTerminal.code ? ` • ${activeTerminal.code}` : ""}
-    </div>
-  )}
-</div>
+          <div className="text-right">
+            <div className="max-w-[150px] truncate text-xs font-bold text-slate-800">
+              {user?.name || user?.email}
+            </div>
+            <div className="text-[10px] font-medium text-slate-400 uppercase tracking-tighter">{user?.role}</div>
+          </div>
         </div>
 
         <button
@@ -680,6 +730,11 @@ export default function AppLayout({
                     {stockAlertCount}
                   </span>
                 )}
+                {(item.key === "executiveNotifications" && notificationCounters.unread > 0) && (
+                  <span className="animate-pulse rounded-full bg-red-600 px-1.5 py-0.5 text-[9px] text-white">
+                    {notificationCounters.unread}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -688,30 +743,29 @@ export default function AppLayout({
     )}
 
     {/* Profil Mobile (visible uniquement sur mobile) - Épuré */}
-<div className="flex items-center justify-between border-t border-slate-100 pt-2 sm:hidden">
-  <div className="flex min-w-0 flex-col gap-0.5">
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-      <span className="truncate text-[10px] font-bold uppercase text-slate-600">
-        {activeTerminal?.site_name || siteName}
-      </span>
-    </div>
-
-    {activeTerminal?.name && (
-      <div className="truncate text-[10px] text-emerald-600">
-        Poste : {activeTerminal.name}
-        {activeTerminal.code ? ` (${activeTerminal.code})` : ""}
+    <div className="flex items-center justify-between border-t border-slate-100 pt-2 sm:hidden">
+      <div className="flex items-center gap-2">
+         <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+         <span className="text-[10px] font-bold text-slate-600 uppercase">{siteName}</span>
       </div>
-    )}
-  </div>
-
-  <button
-    onClick={logout}
-    className="text-[10px] font-black uppercase text-red-600"
-  >
-    Déconnexion
-  </button>
-</div>
+      <button
+        type="button"
+        onClick={() => setPage("executiveNotifications")}
+        className={`relative rounded-lg px-2 py-1 text-[10px] font-black uppercase ${
+          notificationCounters.unread > 0
+            ? "bg-red-100 text-red-700"
+            : "bg-slate-100 text-slate-600"
+        }`}
+      >
+        🔔
+        {notificationCounters.unread > 0 && (
+          <span className="ml-1">{notificationCounters.unread}</span>
+        )}
+      </button>
+      <button onClick={logout} className="text-[10px] font-black uppercase text-red-600">
+        Déconnexion
+      </button>
+    </div>
   </div>
 </header>
           <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8">
