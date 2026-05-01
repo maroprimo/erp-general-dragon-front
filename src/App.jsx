@@ -50,6 +50,8 @@ import CashSessions from "./pages/CashSessions";
 import CashDashboard from "./pages/CashDashboard";
 import SalesStockMovements from "./pages/SalesStockMovements";
 import KitchenInventoryChecks from "./pages/KitchenInventoryChecks";
+import KitchenLossDashboard from "./pages/KitchenLossDashboard";
+import ExecutiveWeeklyReport from "./pages/ExecutiveWeeklyReport";
 
 const PAGE_ACCESS = {
   dashboard: ["pdg", "admin"],
@@ -62,6 +64,8 @@ const PAGE_ACCESS = {
   cashSessions: ["pdg", "admin", "controle", "stock"],
   salesStockMovements: ["pdg", "admin", "controle", "stock"],
   kitchenInventoryChecks: ["pdg", "admin", "controle", "stock"],
+  kitchenLossDashboard: ["pdg", "admin", "controle"],
+  executiveWeeklyReport: ["pdg", "admin"],
 
   stock: ["pdg", "admin", "stock", "cuisine"],
   stockLosses: ["pdg", "admin", "stock", "controle"],
@@ -247,6 +251,8 @@ const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
     if (page === "cashDashboard") return <CashDashboard />;
     if (page === "salesStockMovements") return <SalesStockMovements />;
     if (page === "kitchenInventoryChecks") return <KitchenInventoryChecks />;
+    if (page === "kitchenLossDashboard") return <KitchenLossDashboard />;
+    if (page === "executiveWeeklyReport") return <ExecutiveWeeklyReport />;
 
     if (page === "stock") return <Stock />;
     if (page === "stockLosses") return <StockLosses />;

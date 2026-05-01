@@ -84,16 +84,6 @@ items: [
     roles: ["pdg", "admin", "controle"],
   },
   {
-  key: "salesStockMovements",
-  label: "Mouvements stock vente",
-  roles: ["pdg", "admin", "controle", "stock"],
-  },
-  {
-  key: "kitchenInventoryChecks",
-  label: "Contrôle pertes cuisine",
-  roles: ["pdg", "admin", "controle", "stock"],
-  },
-  {
     key: "cashSessions",
     label: "Ouverture / Clôture caisse",
     roles: ["pdg", "admin", "controle", "stock"],
@@ -122,6 +112,26 @@ items: [
         label: "Inventaires",
         roles: ["pdg", "admin", "stock", "controle"],
       },
+      {
+        key: "kitchenLossDashboard",
+        label: "Dashboard pertes cuisine",
+        roles: ["pdg", "admin", "controle"],
+      },
+      {
+      key: "salesStockMovements",
+      label: "Mouvements stock vente",
+      roles: ["pdg", "admin", "controle", "stock"],
+      },
+      {
+      key: "kitchenInventoryChecks",
+      label: "Contrôle pertes cuisine",
+      roles: ["pdg", "admin", "controle", "stock"],
+      },
+      {
+      key: "executiveWeeklyReport",
+      label: "Rapport PDG hebdo",
+      roles: ["pdg", "admin"],
+    },
     ],
   },
   {
