@@ -54,6 +54,8 @@ import KitchenLossDashboard from "./pages/KitchenLossDashboard";
 import ExecutiveWeeklyReport from "./pages/ExecutiveWeeklyReport";
 import ExecutiveReportLogs from "./pages/ExecutiveReportLogs";
 import ExecutiveNotifications from "./pages/ExecutiveNotifications";
+import StockReplenishmentSuggestions from "./pages/StockReplenishmentSuggestions";
+import RestaurantFloorPlan from "./pages/RestaurantFloorPlan";
 
 const PAGE_ACCESS = {
   dashboard: ["pdg", "admin"],
@@ -70,6 +72,8 @@ const PAGE_ACCESS = {
   executiveWeeklyReport: ["pdg", "admin"],
   executiveReportLogs: ["pdg", "admin"],
   executiveNotifications: ["pdg", "admin", "controle"],
+  stockReplenishmentSuggestions: ["pdg", "admin", "controle", "stock"],
+  restaurantFloorPlan: ["pdg", "admin", "controle", "caissier", "serveur"],
 
   stock: ["pdg", "admin", "stock", "cuisine"],
   stockLosses: ["pdg", "admin", "stock", "controle"],
@@ -259,6 +263,8 @@ const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
     if (page === "executiveWeeklyReport") return <ExecutiveWeeklyReport />;
     if (page === "executiveReportLogs") return <ExecutiveReportLogs />;
     if (page === "executiveNotifications") return <ExecutiveNotifications />;
+    if (page === "stockReplenishmentSuggestions") return <StockReplenishmentSuggestions />;
+    if (page === "restaurantFloorPlan") return <RestaurantFloorPlan />;
 
     if (page === "stock") return <Stock />;
     if (page === "stockLosses") return <StockLosses />;

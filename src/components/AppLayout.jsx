@@ -105,6 +105,11 @@ items: [
     label: "Ouverture / Clôture caisse",
     roles: ["pdg", "admin", "controle", "stock"],
   },
+  {
+  key: "restaurantFloorPlan",
+  label: "Plan salle",
+  roles: ["pdg", "admin", "controle", "caissier", "serveur"],
+  },
 ],
 },
   {
@@ -154,6 +159,11 @@ items: [
         label: "Centre notifications PDG",
         roles: ["pdg", "admin", "controle"],
       },
+      {
+      key: "stockReplenishmentSuggestions",
+      label: "Suggestions réappro",
+      roles: ["pdg", "admin", "controle", "stock"],
+    },
     ],
   },
   {
