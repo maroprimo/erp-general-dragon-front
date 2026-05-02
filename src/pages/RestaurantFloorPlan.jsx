@@ -81,7 +81,7 @@ const emptyTableForm = {
   is_active: true,
 };
 
-export default function RestaurantFloorPlan() {
+export default function RestaurantFloorPlan({ setPage }) {
   const { user, activeTerminal } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -133,6 +133,68 @@ const [objectForm, setObjectForm] = useState({
     customer_phone: "",
     notes: "",
   });
+
+
+const openOrderForTable = (table) => {
+  const session = table.open_session || table.openSession;
+
+  if (!session?.id) {
+    toast.error("Aucune session ouverte pour cette table");
+    return;
+  }
+
+  const tableContext = {
+    order_type: "salle",
+    table_label: table.name,
+    table_session_id: session.id,
+    sale_id: session.sale_id || session.sale?.id || null,
+    restaurant_table_id: table.id,
+    restaurant_area_id: table.restaurant_area_id,
+    site_id: table.site_id,
+    guest_count: session.guest_count || 1,
+    customer_name: session.customer_name || "",
+    customer_phone: session.customer_phone || "",
+    opened_at: session.opened_at || null,
+  };
+
+  localStorage.setItem(
+    "pending_table_order_context",
+    JSON.stringify(tableContext)
+  );
+
+  toast.success(`Commande table ${table.name}`);
+
+  if (typeof setPage === "function") {
+    setPage("salesPOS");
+    return;
+  }
+
+  console.error("setPage non disponible dans RestaurantFloorPlan");
+  toast.error("Redirection POS impossible : setPage non disponible");
+};
+
+const markTableClean = async (table) => {
+  const session = table.open_session || table.openSession;
+
+  try {
+    if (session?.id) {
+      const res = await api.post(`/table-sessions/${session.id}/mark-clean`);
+      toast.success(res.data?.message || "Table libérée");
+    } else {
+      await api.post(`/restaurant-tables/${table.id}/status`, {
+        status: "free",
+      });
+      toast.success("Table libérée");
+    }
+
+    setSelectedTable(null);
+    await loadFloor();
+  } catch (err) {
+    console.error(err);
+    toast.error(err?.response?.data?.message || "Erreur libération table");
+  }
+};
+
 
   const visibleAreas = useMemo(() => {
     if (!selectedSiteId) return areas;
@@ -304,6 +366,14 @@ const stopDragTable = async () => {
   const loadFloor = async () => {
     try {
       setLoading(true);
+
+      try {
+        await api.post("/table-sessions/sync-table-statuses", {
+            site_id: selectedSiteId || null,
+        });
+        } catch (syncErr) {
+        console.warn("Synchronisation statuts tables ignorée", syncErr);
+        }
 
       const params = {};
 
@@ -1530,14 +1600,12 @@ onClick={() => {
 
               {selectedTable.status === "occupied" && (
                 <div className="space-y-3">
-                  <button
-                    onClick={() => {
-                      toast("Commande par table en S24.2");
-                    }}
-                    className="w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white"
-                  >
-                    Ouvrir commande
-                  </button>
+                <button
+                onClick={() => openOrderForTable(selectedTable)}
+                className="w-full rounded-xl bg-blue-700 px-4 py-3 font-bold text-white"
+                >
+                Ouvrir commande
+                </button>
 
                   <button
                     onClick={() => closeTableSession(selectedTable)}
@@ -1545,6 +1613,14 @@ onClick={() => {
                   >
                     Clôturer / à nettoyer
                   </button>
+                  {selectedTable.status === "cleaning" && (
+                <button
+                    onClick={() => markTableClean(selectedTable)}
+                    className="w-full rounded-xl bg-emerald-700 px-4 py-3 font-bold text-white"
+                >
+                    Table nettoyée / libérer
+                </button>
+                )}
 
                   <button
                     onClick={() => cancelTableSession(selectedTable)}

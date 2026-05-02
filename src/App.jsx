@@ -264,7 +264,9 @@ const { isAuthenticated, loading, logout, user, activeTerminal } = useAuth();
     if (page === "executiveReportLogs") return <ExecutiveReportLogs />;
     if (page === "executiveNotifications") return <ExecutiveNotifications />;
     if (page === "stockReplenishmentSuggestions") return <StockReplenishmentSuggestions />;
-    if (page === "restaurantFloorPlan") return <RestaurantFloorPlan />;
+    if (page === "restaurantFloorPlan") {
+      return <RestaurantFloorPlan setPage={setPage} />;
+    }
 
     if (page === "stock") return <Stock />;
     if (page === "stockLosses") return <StockLosses />;
